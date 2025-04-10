@@ -1,11 +1,16 @@
 # ETL Business Central
 
+![ETL Pipeline](https://img.shields.io/badge/ETL-Pipeline-blue)
+![Python](https://img.shields.io/badge/Python-3.12%2B-blue)
+![License](https://img.shields.io/badge/License-MIT-green)
+
 Este proyecto implementa un **proceso ETL** que se conecta a Microsoft Business Central para obtener datos de entidades (empresas, clientes, etc.) y permite ir ampliando sus funcionalidades de forma **incremental**. Se utiliza una **arquitectura limpia (Clean Architecture)** siguiendo principios **SOLID**, separando responsabilidades en distintas capas.
 
 ---
 
 ## Estructura de Carpetas
 
+```bash
 etl_bc/
 ├── .env
 ├── requirements.txt
@@ -28,7 +33,7 @@ etl_bc/
 │       ├── etl_controller.py
 │       └── pipeline_steps.py
 └── main.py
-
+```
 ### Descripción de cada carpeta
 
 1. **`.env`**  
@@ -90,13 +95,14 @@ Configurar el archivo .env:
 
 
 # .env
+```bash
 BC_TENANT_ID=XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX
 BC_CLIENT_ID=YYYYYYYY-YYYY-YYYY-YYYY-YYYYYYYYYYYY
 BC_CLIENT_SECRET=<YOUR_CLIENT_SECRET>
 BC_ENVIRONMENT=production
 BC_COMPANY_ID=ZZZZZZZZ-ZZZZ-ZZZZ-ZZZZ-ZZZZZZZZZZZZ
 Ajusta estos valores según tu tenant, entorno y credenciales de Business Central.
-
+```
 Ejecución
 Una vez configurado el .env y el entorno virtual (opcional), simplemente ejecuta:
 
