@@ -3,7 +3,7 @@ interface_adapters/controllers/etl_controller.py
 Controlador que orquesta el flujo ETL mediante una secuencia de Steps.
 """
 from typing import List, Dict, Any
-from interface_adapters.controllers.pipeline_steps import ETLStepInterface
+from interface_adapters.controllers.pipeline_extract import ETLStepInterface
 
 class ETLController:
     """

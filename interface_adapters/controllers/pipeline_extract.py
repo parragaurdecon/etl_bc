@@ -1,12 +1,12 @@
 """
-interface_adapters/controllers/pipeline_steps.py
+interface_adapters/controllers/pipeline_extract.py
 
 Clases para cada etapa (step) del pipeline ETL, con posibilidad
 de imprimir en consola, exportar a CSV opcionalmente,
 y un paso final para almacenar datos en PostgreSQL.
 """
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List, Callable
 import pandas as pd
 
 from application.use_cases.bc_use_cases import BCUseCases
@@ -217,93 +217,82 @@ class ExtractProjectTasksStep(ETLStepInterface):
         return context
 
 
-# ----------------------------------------------------------------------
-# STEP PARA ALMACENAR DATOS EN POSTGRES
-# ----------------------------------------------------------------------
-
-class StoreDataInPostgresStep(ETLStepInterface):
+class ExtractMultiCompanyStep(ETLStepInterface):
     """
-    Paso que toma datos (JSON o DataFrame) del context y los
-    inserta en una tabla PostgreSQL usando PGRepository.
+    Step que obtiene la lista de compañías del context (por ejemplo "companies_json"),
+    luego para cada compañía, llama a la función de extracción (extract_func)
+    y concatena los resultados en un único DataFrame.
 
-    Acciones:
-    1) Verificar/crear la BD si no existe
-    2) Verificar/crear la tabla si no existe
-    3) Insertar los datos
+    No incluye logging; imprime en consola si así se desea.
     """
 
     def __init__(
-            self,
-            pg_repository: PGRepository,
-            context_key: str,
-            table_name: str,
-            convert_json_to_df: bool = True,
-            if_exists: str = "append"
+        self,
+        companies_context_key: str,
+        extract_func: Callable[[str], Dict[str, Any]],
+        out_context_key: str,
+        company_col: str = "CompanyId",
+        print_to_console: bool = False,
     ):
         """
-        :param pg_repository: instancia de PGRepository
-        :param context_key: clave del context donde están los datos
-        :param table_name: nombre de la tabla en PostgreSQL
-        :param convert_json_to_df: si True, data es JSON y se convierte a DF;
-                                   si False, asumimos data es DataFrame
-        :param if_exists: "append", "replace", "fail"
+        :param companies_context_key: clave en el context donde está el JSON de compañías
+                                      (ej: "companies_json"), que contiene "value": [{id, name...}, ...]
+        :param extract_func: función/callable que, dado un company_id, devuelva un JSON con "value"
+        :param out_context_key: clave donde guardar el DataFrame resultante en forma JSON {"value": ...}
+        :param company_col: nombre de la columna que indica la compañía
+        :param print_to_console: si True, imprime mensajes en pantalla
         """
-        self.pg_repository = pg_repository
-        self.context_key = context_key
-        self.table_name = table_name
-        self.convert_json_to_df = convert_json_to_df
-        self.if_exists = if_exists
+        self.companies_context_key = companies_context_key
+        self.extract_func = extract_func
+        self.out_context_key = out_context_key
+        self.company_col = company_col
+        self.print_to_console = print_to_console
 
     def run(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        # 1. Verificar si hay data en el context
-        data = context.get(self.context_key)
-        if data is None:
-            print(f"[StoreDataInPostgresStep] No hay datos en '{self.context_key}'.")
+        # 1. Obtener lista de compañías desde el context
+        companies_json = context.get(self.companies_context_key, {})
+        companies_list = companies_json.get("value", [])
+        if not companies_list:
+            if self.print_to_console:
+                print(f"No hay compañías en '{self.companies_context_key}' o la lista está vacía.")
+            # Guardar un valor vacío para el out_context_key
+            context[self.out_context_key] = {"value": []}
             return context
 
-        # 2. Convertir a DataFrame si es JSON
-        if self.convert_json_to_df:
-            if isinstance(data, dict) and "value" in data:
-                df = pd.DataFrame(data["value"])
-            elif isinstance(data, dict):
-                df = pd.DataFrame([data])
-            else:
-                df = pd.DataFrame(data)
+        # 2. Iterar sobre cada compañía y extraer datos
+        all_data_df = pd.DataFrame()
+
+        for comp in companies_list:
+            c_id = comp.get("id")
+            if not c_id:
+                continue
+
+            entity_json = self.extract_func(c_id)
+            items = entity_json.get("value", [])
+            if not items:
+                if self.print_to_console:
+                    print(f"No hay datos para la compañía {c_id}.")
+                continue
+
+            df = pd.DataFrame(items)
+            df[self.company_col] = c_id
+
+            all_data_df = pd.concat([all_data_df, df], ignore_index=True)
+
+            if self.print_to_console:
+                print(f"Extraídos {len(df)} registros para la compañía '{c_id}'.")
+
+        # 3. Guardar en el context como JSON {"value": ...}
+        if all_data_df.empty:
+            context[self.out_context_key] = {"value": []}
+            if self.print_to_console:
+                print("No se obtuvieron datos de ninguna compañía.")
         else:
-            # asumimos data ya es DataFrame
-            df = data
-
-        if df.empty:
-            print(f"[StoreDataInPostgresStep] DataFrame vacío, no guardamos en '{self.table_name}'.")
-            return context
-
-        # 3. Verificar / crear la BD si no existe
-        self.pg_repository.create_database_if_not_exists()
-
-        # 4. Verificar si la tabla existe; si no, crearla a partir del schema de df
-        if not self.pg_repository.table_exists(self.table_name):
-            # Crear la tabla con 0 filas (para el schema). Podrías usar df.head(0).
-            print(f"[StoreDataInPostgresStep] La tabla '{self.table_name}' no existe. Creándola...")
-            self.pg_repository.create_table_from_df(self.table_name, df.head(0))
-
-        # 5. Insertar datos en la tabla
-        # Usa if_exists según tu preferencia ("append", "replace", o "fail").
-        self.pg_repository.insert_table(self.table_name, df, if_exists=self.if_exists)
+            all_dicts = all_data_df.to_dict(orient="records")
+            context[self.out_context_key] = {"value": all_dicts}
+            if self.print_to_console:
+                print(f"Concatenado un total de {len(all_data_df)} registros para {len(companies_list)} compañías.")
 
         return context
 
-
-class CheckPostgresConnectionStep(ETLStepInterface):
-    """
-    Step que simplemente verifica la conexión a PostgreSQL.
-    """
-
-    def __init__(self, pg_repository: PGRepository):
-        self.pg_repository = pg_repository
-
-    def run(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        print("[CheckPostgresConnectionStep] Verificando conexión a PostgreSQL...")
-        self.pg_repository.check_connection()
-        print("[CheckPostgresConnectionStep] Conexión verificada con éxito.")
-        return context
 

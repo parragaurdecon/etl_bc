@@ -15,12 +15,16 @@ from application.use_cases.bc_use_cases import BCUseCases
 from application.use_cases.csv_export_service import CSVExportService
 
 from interface_adapters.controllers.etl_controller import ETLController
-from interface_adapters.controllers.pipeline_steps import (
+from interface_adapters.controllers.pipeline_extract import (
     ExtractCompaniesStep,
-    ExtractProjectsStep,
+    ExtractMultiCompanyStep,
+)
+
+from interface_adapters.controllers.pipeline_store import (
     CheckPostgresConnectionStep,
     StoreDataInPostgresStep
 )
+
 
 def main():
     # 1. Infraestructura de Business Central
@@ -41,16 +45,16 @@ def main():
         bc_use_cases=bc_use_cases,
         csv_export_service=csv_exporter,
         print_to_console=True,
-        export_to_csv=False,    # no exportamos a CSV en este ejemplo
+        export_to_csv=True,    # no exportamos a CSV en este ejemplo
         csv_file_path="companies_export.csv"
     )
-    step_extract_projects = ExtractProjectsStep(
-        bc_use_cases=bc_use_cases,
-        company_id="4a0799a1-96cd-ef11-8a6d-7c1e527596b1",  # Ejemplo de Company ID
-        csv_export_service=csv_exporter,
-        print_to_console=True,
-        export_to_csv=False,
-        csv_file_path="projects_data.csv"
+
+    step_extract_multi_projects = ExtractMultiCompanyStep(
+        companies_context_key="companies_json",           # Leemos la lista de compañías que extrajo step_extract_companies
+        extract_func=bc_use_cases.get_company_projects,   # Llamamos a get_company_projects(c_id)
+        out_context_key="projects_json",                  # Guardamos el resultado en "projects_json"
+        company_col="CompanyId",
+        print_to_console=True
     )
 
     # 5. Step para verificar conexión a PostgreSQL
@@ -69,7 +73,7 @@ def main():
     store_projects_step = StoreDataInPostgresStep(
         pg_repository=pg_repository,
         context_key="projects_json",   # clave donde se guardan los proyectos
-        table_name="projects_bc",      # nombre de la tabla en Postgres
+        table_name="projects_multi",      # nombre de la tabla en Postgres
         convert_json_to_df=True,
         if_exists="append"
     )
@@ -77,7 +81,7 @@ def main():
     # 7. Definir la secuencia de steps
     steps = [
         step_extract_companies,   # extrae compañías -> "companies_json"
-        step_extract_projects,    # extrae proyectos  -> "projects_json"
+        step_extract_multi_projects,    # extrae proyectos  -> "projects_json"
         check_pg_step,            # verifica la conexión a PostgreSQL
         store_companies_step,     # guarda "companies_json" en la tabla "companies_bc"
         store_projects_step       # guarda "projects_json"   en la tabla "projects_bc"

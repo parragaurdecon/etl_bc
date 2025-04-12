@@ -31,7 +31,7 @@ etl_bc/
 ├── interface_adapters/
 │   └── controllers/
 │       ├── etl_controller.py
-│       └── pipeline_steps.py
+│       └── pipeline_extract.py
 └── main.py
 ```
 ### Descripción de cada carpeta
