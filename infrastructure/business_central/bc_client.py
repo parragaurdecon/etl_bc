@@ -49,20 +49,48 @@ class BCClient:
         url = f"https://api.businesscentral.dynamics.com/v2.0/{self.environment}/api/v2.0/companies"
         return self._call_get(url)
 
-    def fetch_entities(self):
-        url = f"https://api.businesscentral.dynamics.com/v2.0/{self.environment}/api/V2.0/"
+    def fetch_company_raw_data(self, company_id: str):
+        """
+        Llama al endpoint:
+        GET https://api.businesscentral.dynamics.com/v2.0/<tenant_id>/<environment>/api/v2.0/companies({company_id})/
+        y devuelve el JSON de la compañía (datos de la empresa).
+        """
+        url = f"https://api.businesscentral.dynamics.com/v2.0/{self.tenant_id}/{self.environment}/api/v2.0/companies({company_id})/"
         return self._call_get(url)
 
-    def fetch_customers(self):
-        url = f"https://api.businesscentral.dynamics.com/v2.0/{self.environment}/api/V2.0/companies({self.company_id})/customers"
+    def fetch_entity_definitions(self, company_id: str):
+        """
+        Devuelve todas las entityDefinitions (tablas) para una compañía dada.
+        Endpoint: /companies({companyId})/entityDefinitions
+        """
+        url = (
+            f"https://api.businesscentral.dynamics.com/v2.0/{self.environment}/api/V2.0/"
+        )
         return self._call_get(url)
 
-    def fetch_currency(self):
-        url = f"https://api.businesscentral.dynamics.com/v2.0/{self.environment}/api/V2.0/companies({self.company_id})/currencies"
+    def fetch_projects(self, company_id: str):
+        """
+        Llama a:
+        GET /v2.0/{tenant_id}/{environment}/api/v2.0/companies({companyId})/projects
+        y devuelve el JSON de proyectos.
+        """
+        url = (
+            f"https://api.businesscentral.dynamics.com/v2.0/"
+            f"{self.tenant_id}/{self.environment}/api/v2.0/"
+            f"companies({company_id})/projects"
+        )
         return self._call_get(url)
 
-    def fetch_financial_details(self):
-        url = f"https://api.businesscentral.dynamics.com/v2.0/{self.environment}/api/V2.0/companies({self.company_id})/customerFinancialDetails"
+    def fetch_project_tasks(self, company_id: str, project_id: str):
+        """
+        Llama a:
+        GET /companies({company_id})/projects({project_id})/jobTasks
+        """
+        url = (
+            f"https://api.businesscentral.dynamics.com/v2.0/"
+            f"{self.tenant_id}/{self.environment}/api/v2.0/"
+            f"companies({company_id})/projects({project_id})/jobTasks"
+        )
         return self._call_get(url)
 
     def _call_get(self, url):

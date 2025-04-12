@@ -1,14 +1,18 @@
 """
 application/use_cases/bc_use_cases.py
-Casos de uso para interactuar con Business Central y transformaciones.
+Casos de uso para interactuar con Business Central (solo métodos puros).
 """
 
 from domain.repositories.interfaces import BusinessCentralRepositoryInterface
 from domain.services.transform_service import TransformService
-from typing import Dict, Any, List
-import pandas as pd
+from typing import Dict, Any
 
 class BCUseCases:
+    """
+    Clase que orquesta la obtención y la lógica de negocio
+    para datos de Business Central, sin incluir acciones de E/S (export a CSV).
+    """
+
     def __init__(self, bc_repository: BusinessCentralRepositoryInterface, transform_service: TransformService):
         self.bc_repository = bc_repository
         self.transform_service = transform_service
@@ -25,15 +29,26 @@ class BCUseCases:
         """
         return self.bc_repository.get_companies()
 
-    def get_customers(self) -> Dict[str, Any]:
+    def get_company_entity_definitions(self, company_id: str) -> dict:
         """
-        Devuelve el JSON de clientes en BC.
+        Devuelve el JSON con las entityDefinitions de una compañía concreta.
         """
-        return self.bc_repository.get_customers()
+        return self.bc_repository.get_entity_definitions(company_id)
 
-    def export_customers_to_csv(self, customers_json: Dict[str, Any], file_path: str = "customers_export.csv") -> None:
+    def get_company_raw_data(self, company_id: str) -> dict:
         """
-        Convierte el JSON de clientes en un DataFrame y lo exporta a CSV.
+        Devuelve el JSON que trae /companies({companyId})/.
         """
-        df_customers = pd.DataFrame(customers_json.get('value', []))
-        df_customers.to_csv(file_path, index=False, encoding='utf-8')
+        return self.bc_repository.get_company_raw_data(company_id)
+
+    def get_company_projects(self, company_id: str) -> dict:
+        """
+        Devuelve el JSON con los proyectos de una compañía.
+        """
+        return self.bc_repository.get_projects(company_id)
+
+    def get_project_tasks_for_project(self, company_id: str, project_id: str) -> dict:
+        """
+        Devuelve jobTasks para un proyecto específico.
+        """
+        return self.bc_repository.get_project_tasks(company_id, project_id)
