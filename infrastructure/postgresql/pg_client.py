@@ -28,10 +28,7 @@ class SqlAlchemyClient:
         """
         Crea el Engine de SQLAlchemy para PostgreSQL.
         """
-        connection_url = (
-            f"postgresql://{self.user}:{self.password}"
-            f"@{self.host}:{self.port}/{self.dbname}"
-        )
+        connection_url = settings.PG_CONNECTION_STRING
         return create_engine(connection_url)
 
     def get_engine(self) -> Engine:
