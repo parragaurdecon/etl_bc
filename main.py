@@ -84,7 +84,7 @@ def main():
         context_key="companies_json",
         table_name="companies_bc",
         convert_json_to_df=True,
-        if_exists="append",
+        # if_exists="append",
         primary_key="id"   # <- Así evitamos duplicados segun la PK "id"
     )
     store_projects_step = StoreDataInPostgresStep(
@@ -92,7 +92,7 @@ def main():
         context_key="projects_json",
         table_name="projects_bc",
         convert_json_to_df=True,
-        if_exists="append",
+        # if_exists="append",
         primary_key="id"   # <- Carga incremental con PK "id"
     )
 
