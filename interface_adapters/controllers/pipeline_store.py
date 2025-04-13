@@ -1,6 +1,6 @@
 """
 interface_adapters/controllers/pipeline_store.py
-(Versión MUY Simplificada: Crear y Cargar UNA VEZ si no existe)
+(Versión que DELEGA la lógica incremental al Repositorio)
 """
 
 import logging
@@ -18,10 +18,11 @@ class ETLStepInterface:
 
 class StoreDataInPostgresStep(ETLStepInterface):
     """
-    Paso ETL para almacenar datos en PostgreSQL:
-    - Crea la tabla CON PK (si primary_key se define) si NO existe.
-    - Inserta los datos del DataFrame actual SÓLO si la tabla fue recién creada.
-    - Si la tabla YA EXISTE, no hace NADA.
+    Paso ETL para almacenar datos en PostgreSQL.
+    - Si se define una primary_key, usa la lógica incremental del repositorio
+      (que crea tabla con PK si no existe e inserta solo datos nuevos si ya existe).
+    - Si primary_key es None, crea la tabla sin PK si no existe y luego inserta
+      según el modo 'if_exists'.
     """
     def __init__(
         self,
@@ -29,22 +30,27 @@ class StoreDataInPostgresStep(ETLStepInterface):
         context_key: str,
         table_name: str,
         convert_json_to_df: bool = True,
-        # 'if_exists' ya no es relevante para esta lógica simplificada
-        primary_key: Optional[str] = None # PK para la CREACIÓN
+        if_exists: str = "append", # Usado solo si primary_key es None
+        primary_key: Optional[str] = "id" # Clave para modo incremental Y creación
     ):
         """
-        :param primary_key: Columna a usar como PK *si la tabla se crea*.
+        :param pg_repository: instancia de PGRepository
+        :param context_key: clave del context donde están los datos
+        :param table_name: nombre de la tabla en PostgreSQL
+        :param convert_json_to_df: si True, convierte JSON a DF
+        :param if_exists: Cómo actuar si la tabla existe al *insertar* en modo NO incremental ('append', 'replace', 'fail')
+        :param primary_key: Columna PK. Si se define, activa el modo incremental. Si es None, modo normal.
         """
         self.pg_repository = pg_repository
         self.context_key = context_key
         self.table_name = table_name
         self.convert_json_to_df = convert_json_to_df
-        # self.if_exists = if_exists # Ya no se usa en esta lógica
+        self.if_exists = if_exists
         self.primary_key = primary_key
         self.logger = logging.getLogger(__name__)
 
     def run(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        self.logger.info(f"--- Iniciando Step: Almacenar UNA VEZ en tabla '{self.table_name}' ---")
+        self.logger.info(f"--- Iniciando Step: Almacenar en tabla '{self.table_name}' ---")
         data = context.get(self.context_key)
         if data is None:
             self.logger.warning(f"Context_key '{self.context_key}' no encontrado. Omitiendo step.")
@@ -56,7 +62,7 @@ class StoreDataInPostgresStep(ETLStepInterface):
             self.logger.error(f"DataFrame vacío o inválido para '{self.context_key}'. No se procesará tabla '{self.table_name}'.")
             return context
 
-        self.logger.info(f"DataFrame para '{self.table_name}' (Shape: {df.shape}). Verificando tabla...")
+        self.logger.info(f"DataFrame para '{self.table_name}' (Shape: {df.shape}). Iniciando operaciones de BD.")
 
         try:
             # 1. Asegurar que la BD existe
@@ -64,60 +70,52 @@ class StoreDataInPostgresStep(ETLStepInterface):
             self.pg_repository.create_database_if_not_exists()
             self.logger.debug("Base de datos OK.")
 
-            # --- LÓGICA SIMPLIFICADA ---
-            if not self.pg_repository.table_exists(self.table_name):
-                # La tabla NO existe: Crear E Insertar Datos Iniciales
-                self.logger.info(f"Tabla '{self.table_name}' no existe. Creando e insertando datos iniciales...")
-
-                # 1. Crear tabla (con PK si se especificó)
-                # Esta función lanza error si df vacío o PK no existe en df.
-                self.logger.debug(f"Llamando a create_table_from_df para '{self.table_name}'...")
-                self.pg_repository.create_table_from_df(
+            # --- LÓGICA REVERTIDA ---
+            if self.primary_key:
+                # MODO INCREMENTAL: Dejar que incremental_insert_table maneje todo
+                # (creación con PK si no existe, inserción incremental si existe).
+                self.logger.info(f"Ejecutando inserción INCREMENTAL (PK='{self.primary_key}') en tabla '{self.table_name}'.")
+                self.pg_repository.incremental_insert_table(
                     table_name=self.table_name,
-                    df=df, # Pasar df completo para validaciones
+                    df=df,
                     primary_key=self.primary_key
                 )
-                self.logger.info(f"Tabla '{self.table_name}' creada exitosamente"
-                                 f"{f' con PK en [{self.primary_key}]' if self.primary_key else ' (sin PK definida)'}.")
-
-                # 2. Insertar datos iniciales (manejando duplicados internos SI hay PK)
-                df_to_insert = df
-                if self.primary_key:
-                    self.logger.info(f"Preparando carga inicial para '{self.table_name}', eliminando duplicados internos (PK='{self.primary_key}')...")
-                    initial_rows = len(df)
-                    df_to_insert = df.drop_duplicates(subset=[self.primary_key], keep='first')
-                    final_rows = len(df_to_insert)
-                    if initial_rows != final_rows:
-                        self.logger.warning(f"Se eliminaron {initial_rows - final_rows} duplicados internos del lote inicial para '{self.table_name}'.")
-
-                if not df_to_insert.empty:
-                    self.logger.info(f"Insertando {len(df_to_insert)} filas únicas iniciales en '{self.table_name}'...")
-                    # Usamos 'append' porque la tabla está garantizado que está vacía aquí
-                    self.pg_repository.insert_table(
-                        table_name=self.table_name,
-                        df=df_to_insert,
-                        if_exists='append'
-                    )
-                    self.logger.info(f"Carga inicial en '{self.table_name}' completada.")
-                else:
-                    self.logger.warning(f"No quedaron filas para la carga inicial de '{self.table_name}' después de eliminar duplicados.")
-
+                self.logger.info(f"Inserción incremental para '{self.table_name}' completada.")
             else:
-                # La tabla YA existe: No hacer nada
-                self.logger.info(f"Tabla '{self.table_name}' ya existe. No se realiza ninguna acción.")
+                # MODO NO INCREMENTAL: Crear tabla explícitamente SIN PK si no existe,
+                # luego insertar según if_exists.
+                self.logger.info(f"Ejecutando inserción NO incremental (modo='{self.if_exists}') en tabla '{self.table_name}'.")
+                if not self.pg_repository.table_exists(self.table_name):
+                     self.logger.info(f"La tabla '{self.table_name}' no existe. Creándola (sin PK)...")
+                     # Pasar el df CON DATOS para validar schema
+                     self.pg_repository.create_table_from_df(
+                         table_name=self.table_name,
+                         df=df,
+                         primary_key=None # Sin PK aquí
+                     )
+                     self.logger.info(f"Tabla '{self.table_name}' creada (sin PK).")
+                else:
+                     self.logger.info(f"Tabla '{self.table_name}' ya existe.")
+
+                # Insertar datos usando if_exists
+                self.logger.info(f"Insertando datos en '{self.table_name}' (modo='{self.if_exists}')...")
+                # Aquí NO necesitamos drop_duplicates porque no hay PK que proteger
+                self.pg_repository.insert_table(
+                    table_name=self.table_name,
+                    df=df, # Insertar el DF completo
+                    if_exists=self.if_exists
+                )
+                self.logger.info(f"Inserción NO incremental para '{self.table_name}' completada.")
 
         # --- Manejo de Excepciones ---
         except (ConnectionError, ValueError, RuntimeError, PermissionError, SQLAlchemyError, ProgrammingError, IntegrityError) as e:
-             # Capturar todos los errores esperados del repositorio o BD
              self.logger.error(f"Error de base de datos procesando tabla '{self.table_name}': {e}", exc_info=True)
-             # Relanzar para detener el pipeline si ocurre un error en la creación/inserción inicial
              raise RuntimeError(f"Fallo al procesar tabla '{self.table_name}'") from e
         except Exception as e:
-            # Capturar cualquier otro error inesperado
             self.logger.exception(f"Error inesperado procesando tabla '{self.table_name}': {e}")
             raise RuntimeError(f"Fallo inesperado procesando tabla '{self.table_name}'") from e
 
-        self.logger.info(f"--- Step finalizado: Almacenar UNA VEZ en tabla '{self.table_name}' ---")
+        self.logger.info(f"--- Step finalizado: Almacenar en tabla '{self.table_name}' ---")
         return context
 
     def _to_dataframe(self, data: Any) -> pd.DataFrame:
@@ -141,8 +139,8 @@ class StoreDataInPostgresStep(ETLStepInterface):
              return df # Devuelve DF vacío
 
 
+# ... (CheckPostgresConnectionStep sin cambios) ...
 class CheckPostgresConnectionStep(ETLStepInterface):
-    # ... (sin cambios, mantener el logger si quieres) ...
     def __init__(self, pg_repository: PGRepository):
         self.pg_repository = pg_repository
         self.logger = logging.getLogger(__name__)
