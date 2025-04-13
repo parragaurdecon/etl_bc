@@ -52,3 +52,7 @@ class BusinessCentralRepositoryInterface(ABC):
         Devuelve las tareas (jobTasks) de un proyecto en la compañía especificada.
         """
         pass
+
+    @abstractmethod
+    def get_customers(self, company_id: str) -> Dict[str, Any]:
+        pass

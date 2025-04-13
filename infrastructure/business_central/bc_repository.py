@@ -127,3 +127,17 @@ class BCRepository(BusinessCentralRepositoryInterface):
         except Exception as e:
             self.logger.error(f"Error inesperado en get_entities: {e}", exc_info=True)
             return {"value": []}
+
+    def get_customers(self, company_id: str) -> Dict[str, Any]:
+        """Obtiene clientes para una compañía. Devuelve {"value": []} si falla."""
+        self.logger.info(f"Repositorio: Obteniendo clientes para compañía ID: {company_id}")
+        if not company_id:
+            self.logger.warning("get_customers llamado sin company_id.")
+            return {"value": []}
+        try:
+            data = self.bc_client.fetch_customers(company_id)
+            # Usar el helper para manejar respuesta None
+            return self._handle_client_response(data, f"fetch_customers({company_id})")
+        except Exception as e:
+            self.logger.error(f"Error inesperado en get_customers para {company_id}: {e}", exc_info=True)
+            return {"value": []}

@@ -106,6 +106,15 @@ def main():
         )
         logger.debug("... Step 'ExtractMultiCompanyStep' definido.")
 
+        step_extract_multi_customers = ExtractMultiCompanyStep(
+            companies_context_key="companies_json",  # Usa las compañías filtradas
+            extract_func=bc_use_cases.get_company_customers,  # ¡Usa la nueva función!
+            out_context_key="customers_json",  # Nueva clave para guardar clientes
+            company_col="CompanyId",  # Mantener consistencia si aplica
+            # print_to_console=False # Ya no necesario
+        )
+        logger.debug("... Step 'ExtractMultiCompanyStep' para Customers definido.")
+
         # Paso 3: Verificar Conexión a PostgreSQL
         check_pg_step = CheckPostgresConnectionStep(pg_repository)
         logger.debug("... Step 'CheckPostgresConnectionStep' definido.")
@@ -120,6 +129,17 @@ def main():
             # 'if_exists' no se necesita para el modo incremental gestionado por el repo
         )
         logger.debug("... Step 'StoreDataInPostgresStep' para companies_bc definido.")
+
+        store_customers_step = StoreDataInPostgresStep(
+            pg_repository=pg_repository,
+            context_key="customers_json",  # Usa la clave donde guardamos los clientes
+            table_name="customers_bc",  # Nuevo nombre de tabla para clientes
+            convert_json_to_df=True,
+            primary_key="id"  # Asume que los clientes también tienen un 'id' único como PK
+            # ¡¡Verifica esto en tus datos de BC!! Podría ser 'no' u otra columna.
+            # Si no hay PK clara, pon primary_key=None
+        )
+        logger.debug("... Step 'StoreDataInPostgresStep' para customers_bc definido.")
 
         # Paso 5: Almacenar Proyectos (Modo Incremental)
         store_projects_step = StoreDataInPostgresStep(
@@ -136,13 +156,15 @@ def main():
 
         # --- 3. Definir la Secuencia ---
         steps = [
-            step_extract_companies,
-            step_extract_multi_projects,
-            check_pg_step,
-            store_companies_step,
-            store_projects_step
+            step_extract_companies,  # -> context['companies_json'] (filtrado)
+            step_extract_multi_projects,  # -> context['projects_json']
+            step_extract_multi_customers,  # -> context['customers_json'] ¡NUEVO!
+            check_pg_step,  # Verifica conexión
+            store_companies_step,  # Guarda compañías
+            store_projects_step,  # Guarda proyectos
+            store_customers_step  # Guarda clientes ¡NUEVO!
         ]
-        logger.info(f"Secuencia del pipeline establecida con {len(steps)} steps.")
+        logger.info(f"Secuencia del pipeline actualizada con {len(steps)} steps.")
 
         # --- 4. Ejecutar el Pipeline ---
         logger.info("4. Ejecutando el controlador ETL...")

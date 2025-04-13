@@ -163,4 +163,27 @@ class BCUseCases:
              self.logger.error(f"Error al obtener tareas para proyecto '{project_id}' (compañía '{company_id}'): {e}", exc_info=True)
              return {"value": []}
 
-    # --- Añadir más casos de uso ---
+    def get_company_customers(self, company_id: str) -> Dict[str, Any]:
+        """
+        Obtiene el JSON con los clientes de una compañía.
+        (Podría incluir transformaciones futuras aquí).
+        """
+        self.logger.info(f"Iniciando caso de uso: Obtener Clientes para Compañía ID: {company_id}")
+        try:
+            if not company_id or not isinstance(company_id, str):
+                self.logger.error("company_id inválido proporcionado para get_company_customers.")
+                return {"value": []}
+            self.logger.debug(f"Llamando a BCRepository.get_customers para '{company_id}'...")
+            customers_data = self.bc_repository.get_customers(company_id)
+            self.logger.info(
+                f"Clientes obtenidos para '{company_id}': {len(customers_data.get('value', []))} registros.")
+
+            # --- Punto Potencial para Transformación de Clientes ---
+            # customers_data = self.transform_service.clean_customer_data(customers_data)
+            # self.logger.info("Transformación de datos de clientes aplicada.")
+            # --------------------------------------------------------
+
+            return customers_data
+        except Exception as e:
+            self.logger.error(f"Error en caso de uso get_company_customers para ID '{company_id}': {e}", exc_info=True)
+            return {"value": []}
