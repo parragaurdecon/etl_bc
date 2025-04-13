@@ -17,10 +17,6 @@ class ETLStepInterface:
     def run(self, context: Dict[str, Any]) -> Dict[str, Any]:
         raise NotImplementedError
 
-# ----------------------------------------------------------------------
-# STEPS DE EXTRACCIÓN
-# ----------------------------------------------------------------------
-
 class ExtractCompaniesStep(ETLStepInterface):
     """
     Extrae la lista de empresas desde Business Central y la
@@ -62,79 +58,6 @@ class ExtractCompaniesStep(ETLStepInterface):
 
         return context
 
-class ExtractCompanyRawDataStep(ETLStepInterface):
-    def __init__(
-        self,
-        bc_use_cases: BCUseCases,
-        company_id: str,
-        csv_export_service: Optional[CSVExportService] = None,
-        print_to_console: bool = False,
-        export_to_csv: bool = False,
-        csv_file_path: str = "company_raw_data.csv",
-    ):
-        self.bc_use_cases = bc_use_cases
-        self.company_id = company_id
-        self.csv_export_service = csv_export_service
-        self.print_to_console = print_to_console
-        self.export_to_csv = export_to_csv
-        self.csv_file_path = csv_file_path
-
-    def run(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        company_json = self.bc_use_cases.get_company_raw_data(self.company_id)
-        context["company_raw_data"] = company_json
-
-        if self.print_to_console:
-            print(f"\n[ExtractCompanyRawDataStep] Datos de la compañía {self.company_id}:")
-            print(company_json)
-
-        if self.export_to_csv and self.csv_export_service:
-            self.csv_export_service.export_json_to_csv(
-                data_json=company_json,
-                file_path=self.csv_file_path
-            )
-            print(f"[ExtractCompanyRawDataStep] CSV generado: {self.csv_file_path}")
-
-        return context
-
-class ExtractCompanyTablesStep(ETLStepInterface):
-    def __init__(
-        self,
-        bc_use_cases: BCUseCases,
-        company_id: str,
-        csv_export_service: Optional[CSVExportService] = None,
-        print_to_console: bool = False,
-        export_to_csv: bool = False,
-        csv_file_path: str = "company_tables.csv",
-    ):
-        self.bc_use_cases = bc_use_cases
-        self.company_id = company_id
-        self.csv_export_service = csv_export_service
-        self.print_to_console = print_to_console
-        self.export_to_csv = export_to_csv
-        self.csv_file_path = csv_file_path
-
-    def run(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        tables_json = self.bc_use_cases.get_company_entity_definitions(self.company_id)
-        context["company_tables_json"] = tables_json
-
-        if self.print_to_console:
-            tables_list = tables_json.get("value", [])
-            print(f"\n[ExtractCompanyTablesStep] Tablas de la compañía {self.company_id}:")
-            for table_def in tables_list:
-                name = table_def.get("name")
-                caption = table_def.get("caption")
-                print(f"- {name} (Caption: {caption})")
-
-        if self.export_to_csv and self.csv_export_service:
-            self.csv_export_service.export_json_to_csv(
-                data_json=tables_json,
-                file_path=self.csv_file_path,
-                array_key="value"
-            )
-            print(f"[ExtractCompanyTablesStep] CSV generado: {self.csv_file_path}")
-
-        return context
-
 class ExtractProjectsStep(ETLStepInterface):
     def __init__(
         self,
@@ -173,49 +96,6 @@ class ExtractProjectsStep(ETLStepInterface):
             print(f"[ExtractProjectsStep] CSV generado: {self.csv_file_path}")
 
         return context
-
-class ExtractProjectTasksStep(ETLStepInterface):
-    def __init__(
-        self,
-        bc_use_cases: BCUseCases,
-        company_id: str,
-        project_id: str,
-        csv_export_service: Optional[CSVExportService] = None,
-        print_to_console: bool = False,
-        export_to_csv: bool = False,
-        csv_file_path: str = "project_tasks_data.csv",
-    ):
-        self.bc_use_cases = bc_use_cases
-        self.company_id = company_id
-        self.project_id = project_id
-        self.csv_export_service = csv_export_service
-        self.print_to_console = print_to_console
-        self.export_to_csv = export_to_csv
-        self.csv_file_path = csv_file_path
-
-    def run(self, context: Dict[str, Any]) -> Dict[str, Any]:
-        tasks_json = self.bc_use_cases.get_project_tasks_for_project(
-            self.company_id,
-            self.project_id
-        )
-        context["project_tasks_json"] = tasks_json
-
-        if self.print_to_console:
-            tasks_list = tasks_json.get("value", [])
-            print(f"\n[ExtractProjectTasksStep] Tareas del proyecto {self.project_id}:")
-            for t in tasks_list:
-                print(f"- {t.get('id')} : {t.get('description')}")
-
-        if self.export_to_csv and self.csv_export_service:
-            self.csv_export_service.export_json_to_csv(
-                data_json=tasks_json,
-                file_path=self.csv_file_path,
-                array_key="value"
-            )
-            print(f"[ExtractProjectTasksStep] CSV generado: {self.csv_file_path}")
-
-        return context
-
 
 class ExtractMultiCompanyStep(ETLStepInterface):
     """

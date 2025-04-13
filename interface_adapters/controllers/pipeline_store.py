@@ -9,9 +9,6 @@ import pandas as pd
 from infrastructure.postgresql.pg_repository import PGRepository
 from sqlalchemy.exc import SQLAlchemyError, ProgrammingError, IntegrityError
 
-# Configuración de logging (si no se hace en main.py)
-# logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - [%(name)s] - %(message)s')
-
 class ETLStepInterface:
     def run(self, context: Dict[str, Any]) -> Dict[str, Any]:
         raise NotImplementedError
