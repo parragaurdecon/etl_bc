@@ -1,56 +1,40 @@
-"""
-main.py
-Punto de entrada de la aplicación.
-Configura el pipeline ETL:
-1. Extrae compañías (ya filtradas por el caso de uso).
-2. Extrae proyectos para las compañías válidas.
-3. Verifica conexión a PostgreSQL.
-4. Almacena compañías en PostgreSQL (modo incremental).
-5. Almacena proyectos en PostgreSQL (modo incremental).
-"""
+# main.py
 
 import logging
 import sys
 
-# --- Importaciones de tu aplicación ---
-# Asegúrate de que las rutas sean correctas para tu estructura de proyecto
+# --- Importaciones (Asegúrate que todas son correctas) ---
 try:
     from infrastructure.business_central.bc_client import BCClient
     from infrastructure.business_central.bc_repository import BCRepository
     from infrastructure.postgresql.pg_client import SqlAlchemyClient
     from infrastructure.postgresql.pg_repository import PGRepository
-
     from domain.services.transform_service import TransformService
     from application.use_cases.bc_use_cases import BCUseCases
     from application.use_cases.csv_export_service import CSVExportService
-
+    # Importar el ETLController MODIFICADO
     from interface_adapters.controllers.etl_controller import ETLController
+    # Importar Steps de Extracción
     from interface_adapters.controllers.pipeline_extract import (
         ExtractCompaniesStep,
         ExtractMultiCompanyStep,
     )
-    # Importar la versión de StoreDataInPostgresStep que delega la lógica incremental
+    # Importar Steps de Almacenamiento
     from interface_adapters.controllers.pipeline_store import (
         CheckPostgresConnectionStep,
         StoreDataInPostgresStep
     )
 except ImportError as import_err:
-     print(f"Error crítico: No se pudieron importar módulos necesarios: {import_err}")
-     print("Verifica la estructura de tu proyecto y las rutas de importación.")
-     sys.exit(1) # Salir si las importaciones fallan
+     print(f"Error crítico de importación: {import_err}")
+     sys.exit(1)
 
-
-# --- CONFIGURACIÓN DE LOGGING ---
-# Configurar al principio del script
+# --- CONFIGURACIÓN DE LOGGING (Mantener como estaba) ---
 logging.basicConfig(
-    level=logging.INFO,  # Nivel mínimo a mostrar (INFO, DEBUG, WARNING, ERROR, CRITICAL)
-    format='%(asctime)s - %(levelname)s - [%(name)s:%(lineno)d] - %(message)s', # Formato mejorado con línea
-    datefmt='%Y-%m-%d %H:%M:%S', # Formato de la fecha/hora
-    stream=sys.stdout # Dirigir la salida a la consola estándar
-    # Opcional: filename='etl_pipeline.log', filemode='a'
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - [%(name)s:%(lineno)d] - %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S',
+    stream=sys.stdout
 )
-
-# Logger para main.py
 logger = logging.getLogger(__name__)
 # -----------------------------
 
@@ -59,139 +43,147 @@ def main():
     logger.info("--- Iniciando Pipeline ETL: BC a PostgreSQL ---")
     logger.info("=============================================")
 
+    final_status_message = "--- Pipeline ETL finalizado ---"
+    exit_code = 0
+    issue_summary = "Sin problemas registrados."
+    # Necesitamos inicializar issue_counter fuera del try para el finally
+    issue_counter = None
+
     try:
-        # --- 1. Configuración de Dependencias ---
+        # --- 1. Configuración de Dependencias (sin cambios) ---
         logger.info("1. Configurando dependencias...")
-
-        # Business Central
-        logger.debug("... Configurando cliente y repositorio BC")
-        bc_client = BCClient() # Asume configuración interna (ej. .env)
+        # ... (instanciar bc_client, bc_repository, transform_service, etc.) ...
+        bc_client = BCClient()
         bc_repository = BCRepository(bc_client)
-
-        # Servicios
-        logger.debug("... Configurando servicios de dominio y aplicación")
         transform_service = TransformService()
-        # Pasar el repositorio Y el servicio de transformación
         bc_use_cases = BCUseCases(bc_repository, transform_service)
         csv_exporter = CSVExportService()
-
-        # PostgreSQL
-        logger.debug("... Configurando cliente y repositorio PostgreSQL")
-        # SqlAlchemyClient también debería leer de .env o config
         sa_client = SqlAlchemyClient()
         pg_repository = PGRepository(sa_client)
         logger.info("Dependencias configuradas.")
 
-        # --- 2. Definición de los Pasos del Pipeline ---
+        # --- 2. Definición de los Pasos del Pipeline (CON ARGUMENTOS) ---
         logger.info("2. Definiendo los pasos del pipeline ETL...")
 
-        # Paso 1: Extraer Compañías (ya filtradas por el caso de uso)
+        # Paso 1: Extraer Compañías (Filtradas por Use Case)
         step_extract_companies = ExtractCompaniesStep(
             bc_use_cases=bc_use_cases,
             csv_export_service=csv_exporter,
-            export_to_csv=True, # Mantener exportación CSV si se desea
-            csv_file_path="companies_filtered_export.csv" # Nombre actualizado
-            # 'print_to_console' ya no es necesario, usar logging
-            # 'context_key' usa el default "companies_json"
+            export_to_csv=True,
+            csv_file_path="companies_filtered_export.csv"
+            # context_key por defecto es 'companies_json'
         )
         logger.debug("... Step 'ExtractCompaniesStep' definido.")
 
         # Paso 2: Extraer Proyectos para las compañías filtradas
         step_extract_multi_projects = ExtractMultiCompanyStep(
-            companies_context_key="companies_json", # Usa la salida del step anterior
-            extract_func=bc_use_cases.get_company_projects, # Función del caso de uso
-            out_context_key="projects_json", # Donde guardar el resultado
-            company_col="CompanyId" # Nombre de columna para el ID de compañía
-            # 'print_to_console' ya no es necesario
+            companies_context_key="companies_json",
+            extract_func=bc_use_cases.get_company_projects, # <--- Argumento requerido
+            out_context_key="projects_json",              # <--- Argumento requerido
+            company_col="CompanyId"                       # Argumento opcional
         )
-        logger.debug("... Step 'ExtractMultiCompanyStep' definido.")
+        logger.debug("... Step 'ExtractMultiCompanyStep' para Proyectos definido.")
 
+        # Paso 3: Extraer Clientes para las compañías filtradas
         step_extract_multi_customers = ExtractMultiCompanyStep(
-            companies_context_key="companies_json",  # Usa las compañías filtradas
-            extract_func=bc_use_cases.get_company_customers,  # ¡Usa la nueva función!
-            out_context_key="customers_json",  # Nueva clave para guardar clientes
-            company_col="CompanyId",  # Mantener consistencia si aplica
-            # print_to_console=False # Ya no necesario
+            companies_context_key="companies_json",
+            extract_func=bc_use_cases.get_company_customers, # <--- Argumento requerido
+            out_context_key="customers_json",             # <--- Argumento requerido
+            company_col="CompanyId"
         )
-        logger.debug("... Step 'ExtractMultiCompanyStep' para Customers definido.")
+        logger.debug("... Step 'ExtractMultiCompanyStep' para Clientes definido.")
 
-        # Paso 3: Verificar Conexión a PostgreSQL
-        check_pg_step = CheckPostgresConnectionStep(pg_repository)
+        # Paso 4: Verificar Conexión a PostgreSQL
+        check_pg_step = CheckPostgresConnectionStep(
+            pg_repository=pg_repository
+        )
         logger.debug("... Step 'CheckPostgresConnectionStep' definido.")
 
-        # Paso 4: Almacenar Compañías (Modo Incremental)
+        # Paso 5: Almacenar Compañías (Modo Incremental)
         store_companies_step = StoreDataInPostgresStep(
             pg_repository=pg_repository,
-            context_key="companies_json", # Usa las compañías filtradas
+            context_key="companies_json",
             table_name="companies_bc",
             convert_json_to_df=True,
-            primary_key="id" # Activa el modo incremental en el repositorio
-            # 'if_exists' no se necesita para el modo incremental gestionado por el repo
+            primary_key="id" # Activa modo incremental
         )
         logger.debug("... Step 'StoreDataInPostgresStep' para companies_bc definido.")
 
-        store_customers_step = StoreDataInPostgresStep(
-            pg_repository=pg_repository,
-            context_key="customers_json",  # Usa la clave donde guardamos los clientes
-            table_name="customers_bc",  # Nuevo nombre de tabla para clientes
-            convert_json_to_df=True,
-            primary_key="id"  # Asume que los clientes también tienen un 'id' único como PK
-            # ¡¡Verifica esto en tus datos de BC!! Podría ser 'no' u otra columna.
-            # Si no hay PK clara, pon primary_key=None
-        )
-        logger.debug("... Step 'StoreDataInPostgresStep' para customers_bc definido.")
-
-        # Paso 5: Almacenar Proyectos (Modo Incremental)
+        # Paso 6: Almacenar Proyectos (Modo Incremental)
         store_projects_step = StoreDataInPostgresStep(
             pg_repository=pg_repository,
-            context_key="projects_json", # Usa los proyectos extraídos
-            table_name="projects_bc",    # Nombre correcto de la tabla
+            context_key="projects_json",
+            table_name="projects_bc",
             convert_json_to_df=True,
-            primary_key="id" # Activa el modo incremental en el repositorio
-            # 'if_exists' no se necesita
+            primary_key="id" # Activa modo incremental
         )
         logger.debug("... Step 'StoreDataInPostgresStep' para projects_bc definido.")
+
+        # Paso 7: Almacenar Clientes (Modo Incremental)
+        store_customers_step = StoreDataInPostgresStep(
+            pg_repository=pg_repository,
+            context_key="customers_json",
+            table_name="customers_bc",
+            convert_json_to_df=True,
+            primary_key="id" # O la PK correcta para clientes
+        )
+        logger.debug("... Step 'StoreDataInPostgresStep' para customers_bc definido.")
 
         logger.info("Pasos del pipeline definidos.")
 
         # --- 3. Definir la Secuencia ---
         steps = [
-            step_extract_companies,  # -> context['companies_json'] (filtrado)
-            step_extract_multi_projects,  # -> context['projects_json']
-            step_extract_multi_customers,  # -> context['customers_json'] ¡NUEVO!
-            check_pg_step,  # Verifica conexión
-            store_companies_step,  # Guarda compañías
-            store_projects_step,  # Guarda proyectos
-            store_customers_step  # Guarda clientes ¡NUEVO!
+            step_extract_companies,
+            step_extract_multi_projects,
+            step_extract_multi_customers,
+            check_pg_step,
+            store_companies_step,
+            store_projects_step,
+            store_customers_step
         ]
-        logger.info(f"Secuencia del pipeline actualizada con {len(steps)} steps.")
+        logger.info(f"Secuencia del pipeline establecida con {len(steps)} steps.")
 
         # --- 4. Ejecutar el Pipeline ---
         logger.info("4. Ejecutando el controlador ETL...")
         controller = ETLController(steps)
-        controller.run_etl_process() # run_etl_process debería manejar errores internos de steps si es necesario
+        # Ejecutar y capturar el contador de problemas
+        final_context, issue_counter = controller.run_etl_process() # issue_counter puede ser None si falla la importación del handler
 
-        logger.info("==============================================")
-        logger.info("--- Pipeline ETL finalizado con éxito ---")
-        logger.info("==============================================")
+        # --- 5. Verificar si hubo problemas registrados por el handler ---
+        if issue_counter and issue_counter.has_errors: # Comprobar si issue_counter existe
+            final_status_message = f"--- Pipeline ETL finalizado con ERRORES ({issue_counter.issue_summary}) ---"
+            exit_code = 1
+        elif issue_counter and issue_counter.has_warnings:
+            final_status_message = f"--- Pipeline ETL finalizado con ADVERTENCIAS ({issue_counter.issue_summary}) ---"
+        else:
+            final_status_message = f"--- Pipeline ETL finalizado con ÉXITO ({issue_summary}) ---"
 
-    except ImportError as e:
-         # Captura errores de importación que podrían no haber sido atrapados antes
-         logger.critical(f"Error fatal de importación al configurar dependencias: {e}", exc_info=True)
-         sys.exit(1)
+
     except RuntimeError as e:
-         # Captura errores relanzados por los steps (ej. fallo de conexión PG)
-         logger.error(f"==============================================")
-         logger.error(f"--- Pipeline ETL detenido debido a un error: {e} ---", exc_info=False) # No mostrar traceback aquí si ya se logueó antes
-         logger.error(f"==============================================")
-         sys.exit(1) # Salir con código de error
+         final_status_message = f"--- Pipeline ETL DETENIDO por ERROR FATAL: {e} ---"
+         exit_code = 1
+         # El traceback ya se logueó en el controller
+    except ImportError as e:
+         logger.critical(f"Error fatal de importación: {e}", exc_info=True)
+         final_status_message = "--- Pipeline ETL DETENIDO por ERROR DE IMPORTACIÓN ---"
+         exit_code = 1
     except Exception as e:
-        # Capturar cualquier otro error inesperado en el flujo principal de main
-        logger.error("====================================================")
-        logger.error("--- Pipeline ETL finalizado con ERRORES INESPERADOS ---")
-        logger.error("====================================================")
-        logger.exception("Error no capturado durante la configuración o ejecución del pipeline en main:") # Loguea el traceback completo
-        sys.exit(1) # Salir con código de error
+        logger.exception("Error INESPERADO no capturado durante la configuración o ejecución del pipeline en main:")
+        final_status_message = "--- Pipeline ETL finalizado con ERRORES INESPERADOS ---"
+        exit_code = 1
+
+    # --- Mensaje Final ---
+    logger.info("====================================================")
+    log_level = logging.INFO
+    if exit_code != 0:
+        log_level = logging.ERROR
+    elif issue_counter and issue_counter.has_warnings:
+        log_level = logging.WARNING
+
+    logger.log(log_level, final_status_message) # Usar nivel calculado
+    logger.info("====================================================")
+
+    sys.exit(exit_code)
 
 
 if __name__ == "__main__":
