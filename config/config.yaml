@@ -1,0 +1,16 @@
+# config.yaml - Archivo de configuración de la aplicación ETL
+
+# Compañías a excluir del procesamiento principal
+# (Puedes añadir o quitar IDs aquí sin tocar el código)
+excluded_company_ids:
+  - "533db2ec-6ed9-ef11-8eec-6045bd9e5a05"  # MASTER
+  - "c0fe57e4-d5d7-ef11-b8ec-7c1e525de7b1"  # test3
+  - "7ac53006-a8fd-ef11-9346-000d3a46cc7c"  # URD0310
+  - "1b15ed70-98dc-ef11-9344-000d3aaf69aa"  # URDE2701
+
+# Podrías añadir otras configuraciones aquí en el futuro:
+# database:
+#   pool_size: 10
+# api_endpoints:
+#   business_central: "https://api.businesscentral.dynamics.com/v2.0/..."
+# logging_level: "INFO"

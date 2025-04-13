@@ -3,26 +3,25 @@ application/use_cases/bc_use_cases.py
 Casos de uso para interactuar con Business Central, incluyendo transformaciones básicas.
 """
 import logging
-from typing import Dict, Any, Set # Importar Set
+from typing import Dict, Any, Set # Set ya no es necesario para get_companies
 
 # Asumiendo que las interfaces/clases están correctamente ubicadas para la importación
-from domain.repositories.interfaces import BusinessCentralRepositoryInterface
-from domain.services.transform_service import TransformService
+try:
+    from domain.repositories.interfaces import BusinessCentralRepositoryInterface
+    from domain.services.transform_service import TransformService
+except ImportError as e:
+     logging.critical(f"Error importando dependencias de dominio/repositorio: {e}")
+     # Definir placeholders para evitar errores de carga inmediatos
+     BusinessCentralRepositoryInterface = None
+     TransformService = None
 
-# IDs de Compañías a Excluir (puede vivir aquí, en config, o pasarse como argumento)
-# Definirlo aquí lo hace un default para este caso de uso específico.
-DEFAULT_EXCLUDED_COMPANY_IDS: Set[str] = {
-    "533db2ec-6ed9-ef11-8eec-6045bd9e5a05", # MASTER
-    "c0fe57e4-d5d7-ef11-b8ec-7c1e525de7b1", # test3
-    "7ac53006-a8fd-ef11-9346-000d3a46cc7c", # URD0310
-    "1b15ed70-98dc-ef11-9344-000d3aaf69aa", # URDE2701
-}
-
+# Ya NO necesitamos DEFAULT_EXCLUDED_COMPANY_IDS aquí
 
 class BCUseCases:
     """
     Clase que orquesta la obtención y la lógica de negocio (incluyendo transformaciones)
-    para datos de Business Central.
+    para datos de Business Central. Las transformaciones específicas (como filtros)
+    se delegan a TransformService, que a su vez puede usar configuración externa.
     """
 
     def __init__(self, bc_repository: BusinessCentralRepositoryInterface, transform_service: TransformService):
@@ -32,9 +31,17 @@ class BCUseCases:
         :param bc_repository: Repositorio para acceder a los datos de BC.
         :param transform_service: Servicio para aplicar transformaciones a los datos.
         """
+        # Validar dependencias importadas
+        if BusinessCentralRepositoryInterface is None or TransformService is None:
+            raise ImportError("Dependencias de dominio (Repositorio/Servicio) no cargadas correctamente.")
+        if not isinstance(bc_repository, BusinessCentralRepositoryInterface):
+             raise TypeError("bc_repository debe implementar BusinessCentralRepositoryInterface.")
+        if not isinstance(transform_service, TransformService):
+             raise TypeError("transform_service debe ser una instancia de TransformService.")
+
         self.bc_repository = bc_repository
         self.transform_service = transform_service
-        self.logger = logging.getLogger(__name__) # Logger específico para esta clase
+        self.logger = logging.getLogger(__name__) # Logger específico
 
     def get_entities(self) -> Dict[str, Any]:
         """
@@ -50,19 +57,19 @@ class BCUseCases:
             self.logger.error(f"Error al obtener entidades: {e}", exc_info=True)
             return {"value": []} # Devolver estructura vacía en error
 
-    # --- MÉTODO MODIFICADO ---
-    def get_companies(self, excluded_ids: Set[str] = DEFAULT_EXCLUDED_COMPANY_IDS) -> Dict[str, Any]:
+    # --- MÉTODO SIMPLIFICADO ---
+    def get_companies(self) -> Dict[str, Any]:
         """
-        Obtiene las compañías del repositorio y aplica el filtrado de exclusión
-        usando el TransformService antes de devolverlas.
+        Obtiene las compañías del repositorio y aplica el filtrado configurado
+        a través del TransformService.
 
-        :param excluded_ids: Set de IDs a excluir. Usa el default si no se provee.
         :return: Diccionario JSON con la lista de compañías filtradas.
                  Devuelve {"value": []} en caso de error.
         """
-        self.logger.info("Iniciando caso de uso: Obtener Compañías Filtradas.")
+        # Ya no necesita el parámetro excluded_ids
+        self.logger.info("Iniciando caso de uso: Obtener Compañías (con filtro de config aplicado por TransformService).")
         try:
-            # 1. Extracción (Infrastructure)
+            # 1. Extracción
             self.logger.debug("Llamando a BCRepository.get_companies...")
             raw_companies_data = self.bc_repository.get_companies()
             self.logger.debug(f"Datos brutos obtenidos: {len(raw_companies_data.get('value',[]))} compañías.")
@@ -71,20 +78,18 @@ class BCUseCases:
                  self.logger.warning("No se recibieron datos válidos de compañías del repositorio.")
                  return {"value": []}
 
-            # 2. Transformación (Domain Service)
-            self.logger.debug(f"Aplicando filtro de compañías (excluyendo {len(excluded_ids)} IDs) vía TransformService...")
-            filtered_companies_data = self.transform_service.filter_companies(
-                companies_data=raw_companies_data,
-                excluded_ids=excluded_ids
-            )
-            # El transform_service ya loguea detalles del filtrado
-            self.logger.info(f"Compañías filtradas. Resultado: {len(filtered_companies_data.get('value',[]))} compañías.")
+            # 2. Transformación (Delegada al servicio)
+            self.logger.debug("Aplicando filtro de compañías vía TransformService...")
+            # Simplemente llamamos al método del servicio; él ya sabe qué excluir
+            filtered_companies_data = self.transform_service.filter_companies(raw_companies_data)
+            # El transform_service debería loguear los detalles del filtrado
+            self.logger.info(f"Compañías filtradas por TransformService. Resultado: {len(filtered_companies_data.get('value',[]))} compañías.")
 
             return filtered_companies_data
 
         except Exception as e:
              self.logger.error(f"Error en el caso de uso get_companies: {e}", exc_info=True)
-             return {"value": []} # Devolver estructura vacía en error
+             return {"value": []}
 
     def get_company_entity_definitions(self, company_id: str) -> Dict[str, Any]:
         """
@@ -92,12 +97,16 @@ class BCUseCases:
         """
         self.logger.info(f"Iniciando caso de uso: Obtener EntityDefinitions para Compañía ID: {company_id}")
         try:
-            self.logger.debug(f"Llamando a BCRepository.get_entity_definitions para compañía {company_id}...")
+            # Validar company_id (simple)
+            if not company_id or not isinstance(company_id, str):
+                 self.logger.error("company_id inválido proporcionado para get_company_entity_definitions.")
+                 return {"value": []}
+            self.logger.debug(f"Llamando a BCRepository.get_entity_definitions para '{company_id}'...")
             definitions = self.bc_repository.get_entity_definitions(company_id)
-            self.logger.info(f"EntityDefinitions obtenidas para {company_id}: {len(definitions.get('value',[]))} definiciones.")
+            self.logger.info(f"EntityDefinitions obtenidas para '{company_id}': {len(definitions.get('value',[]))} definiciones.")
             return definitions
         except Exception as e:
-             self.logger.error(f"Error al obtener entity definitions para compañía {company_id}: {e}", exc_info=True)
+             self.logger.error(f"Error al obtener entity definitions para compañía '{company_id}': {e}", exc_info=True)
              return {"value": []}
 
     def get_company_raw_data(self, company_id: str) -> Dict[str, Any]:
@@ -106,37 +115,35 @@ class BCUseCases:
         """
         self.logger.info(f"Iniciando caso de uso: Obtener Datos Raw para Compañía ID: {company_id}")
         try:
-            self.logger.debug(f"Llamando a BCRepository.get_company_raw_data para compañía {company_id}...")
+            if not company_id or not isinstance(company_id, str):
+                 self.logger.error("company_id inválido proporcionado para get_company_raw_data.")
+                 return {}
+            self.logger.debug(f"Llamando a BCRepository.get_company_raw_data para '{company_id}'...")
             raw_data = self.bc_repository.get_company_raw_data(company_id)
-            # Podríamos loguear si se encontró algo o no
-            if raw_data:
-                 self.logger.info(f"Datos raw obtenidos para {company_id}.")
-            else:
-                 self.logger.warning(f"No se obtuvieron datos raw para {company_id}.")
-            return raw_data if raw_data else {} # Devolver dict vacío si no hay nada
+            if raw_data: self.logger.info(f"Datos raw obtenidos para '{company_id}'.")
+            else: self.logger.warning(f"No se obtuvieron datos raw para '{company_id}'.")
+            return raw_data if raw_data else {}
         except Exception as e:
-             self.logger.error(f"Error al obtener datos raw para compañía {company_id}: {e}", exc_info=True)
+             self.logger.error(f"Error al obtener datos raw para compañía '{company_id}': {e}", exc_info=True)
              return {}
 
     def get_company_projects(self, company_id: str) -> Dict[str, Any]:
         """
         Obtiene el JSON con los proyectos de una compañía.
-        (Podría incluir transformaciones futuras aquí si fuera necesario).
         """
         self.logger.info(f"Iniciando caso de uso: Obtener Proyectos para Compañía ID: {company_id}")
         try:
-            self.logger.debug(f"Llamando a BCRepository.get_projects para compañía {company_id}...")
-            projects_data = self.bc_repository.get_projects(company_id) # Asume que existe este método en el repo
-            self.logger.info(f"Proyectos obtenidos para {company_id}: {len(projects_data.get('value',[]))} registros.")
-
-            # --- Punto Potencial para Transformación de Proyectos ---
-            # projects_data = self.transform_service.clean_project_data(projects_data)
-            # self.logger.info("Transformación de datos de proyectos aplicada.")
-            # --------------------------------------------------------
-
+            if not company_id or not isinstance(company_id, str):
+                 self.logger.error("company_id inválido proporcionado para get_company_projects.")
+                 return {"value": []}
+            self.logger.debug(f"Llamando a BCRepository.get_projects para '{company_id}'...")
+            projects_data = self.bc_repository.get_projects(company_id)
+            self.logger.info(f"Proyectos obtenidos para '{company_id}': {len(projects_data.get('value',[]))} registros.")
+            # Aquí se podrían aplicar transformaciones específicas de proyectos si fuera necesario
+            # projects_data = self.transform_service.clean_project_names(projects_data)
             return projects_data
         except Exception as e:
-            self.logger.error(f"Error en el caso de uso get_company_projects para ID {company_id}: {e}", exc_info=True)
+            self.logger.error(f"Error en caso de uso get_company_projects para ID '{company_id}': {e}", exc_info=True)
             return {"value": []}
 
     def get_project_tasks_for_project(self, company_id: str, project_id: str) -> Dict[str, Any]:
@@ -145,12 +152,15 @@ class BCUseCases:
         """
         self.logger.info(f"Iniciando caso de uso: Obtener Tareas para Proyecto ID: {project_id} (Compañía: {company_id})")
         try:
-            self.logger.debug(f"Llamando a BCRepository.get_project_tasks para proyecto {project_id}...")
-            tasks_data = self.bc_repository.get_project_tasks(company_id, project_id) # Asume método existe
-            self.logger.info(f"Tareas obtenidas para proyecto {project_id}: {len(tasks_data.get('value',[]))} tareas.")
+            if not company_id or not project_id or not isinstance(company_id, str) or not isinstance(project_id, str):
+                 self.logger.error("IDs inválidos proporcionados para get_project_tasks_for_project.")
+                 return {"value": []}
+            self.logger.debug(f"Llamando a BCRepository.get_project_tasks para proyecto '{project_id}'...")
+            tasks_data = self.bc_repository.get_project_tasks(company_id, project_id)
+            self.logger.info(f"Tareas obtenidas para proyecto '{project_id}': {len(tasks_data.get('value',[]))} tareas.")
             return tasks_data
         except Exception as e:
-             self.logger.error(f"Error al obtener tareas para proyecto {project_id} (compañía {company_id}): {e}", exc_info=True)
+             self.logger.error(f"Error al obtener tareas para proyecto '{project_id}' (compañía '{company_id}'): {e}", exc_info=True)
              return {"value": []}
 
-    # --- Añadir más casos de uso según sea necesario ---
+    # --- Añadir más casos de uso ---
