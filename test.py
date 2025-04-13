@@ -1,94 +1,166 @@
+# test_create_table_with_pk.py
+
+import os
 import logging
-from sqlalchemy import create_engine, text
-from sqlalchemy.exc import ProgrammingError, OperationalError
-from sqlalchemy.orm import sessionmaker
-from sqlalchemy_utils import database_exists, create_database, drop_database
+import pandas as pd
+from dotenv import load_dotenv
+from sqlalchemy import inspect, text
+from sqlalchemy.exc import ProgrammingError, SQLAlchemyError
 
-# --- Configuración de Logging ---
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+# --- Ajusta esta ruta si tu estructura de proyecto es diferente ---
+try:
+    from infrastructure.postgresql.pg_client import SqlAlchemyClient
+    from infrastructure.postgresql.pg_repository import PGRepository
+except ImportError:
+    logging.error("Error: No se pudieron importar SqlAlchemyClient o PGRepository.")
+    logging.error("Asegúrate de que el script se ejecuta desde una ubicación donde pueda encontrar 'infrastructure/postgresql'")
+    exit(1)
 
-# --- Credenciales (ajusta si es necesario) ---
-PG_HOST = 'localhost'
-PG_DEFAULT_DBNAME = 'postgres' # Conectamos a esta DB para poder crear la nueva
-PG_TARGET_DBNAME = 'business_central' # La DB que queremos crear
-PG_USER = 'postgres'
-PG_PASSWORD = 'admin'
-PG_PORT = 5432
+# --- Configuración del Test ---
+if not load_dotenv():
+     logging.warning("Advertencia: No se encontró el archivo .env.")
 
-# --- Cadenas de Conexión ---
-# Conexión a la base de datos por defecto (generalmente 'postgres') para tareas administrativas
-DEFAULT_DB_URL = f"postgresql+psycopg2://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{PG_DEFAULT_DBNAME}"
-# Conexión a la base de datos objetivo que queremos crear/usar
-TARGET_DB_URL = f"postgresql+psycopg2://{PG_USER}:{PG_PASSWORD}@{PG_HOST}:{PG_PORT}/{PG_TARGET_DBNAME}"
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - [%(module)s.%(funcName)s] - %(message)s')
 
-def check_and_create_db(engine_default_db, db_name):
-    """Verifica si una base de datos existe y la crea si no."""
-    if not database_exists(engine_default_db.url):
-        logging.info(f"La base de datos '{db_name}' no existe. Intentando crearla...")
+TEST_TABLE_NAME = "test"
+PK_COLUMN_NAME = "item_id"
+
+# --- Datos de Prueba ---
+def create_sample_dataframe() -> pd.DataFrame:
+    """Crea un DataFrame simple para la prueba."""
+    data = {
+        PK_COLUMN_NAME: [1001, 1002, 1003],
+        "item_name": ["Widget", "Gadget", "Thingamajig"],
+        "stock_level": [50, 0, 120],
+        "last_updated": pd.to_datetime(['2023-01-10', '2023-01-15', '2023-01-12'])
+    }
+    return pd.DataFrame(data)
+
+# --- Función Principal de Prueba ---
+def run_test():
+    """Ejecuta la prueba de creación de tabla con PK."""
+    logging.info("--- Iniciando Test: Creación de Tabla con PK ---")
+
+    pg_host = os.getenv("PG_HOST")
+    pg_port_str = os.getenv("PG_PORT")
+    pg_user = os.getenv("PG_USER")
+    pg_password = os.getenv("PG_PASSWORD")
+    pg_dbname = os.getenv("PG_DBNAME")
+
+    if not all([pg_host, pg_port_str, pg_user, pg_password, pg_dbname]):
+        logging.error("Error: Faltan variables de entorno PostgreSQL. Verifica .env")
+        return
+
+    try:
+         pg_port = int(pg_port_str)
+    except ValueError:
+         logging.error(f"Error: PG_PORT ('{pg_port_str}') no es un número válido.")
+         return
+
+    sa_client = SqlAlchemyClient(host=pg_host, port=pg_port, user=pg_user, password=pg_password, dbname=pg_dbname)
+    pg_repository = PGRepository(sa_client)
+    engine = None # Para manejar el engine en finally
+
+    try:
+        logging.info(f"Asegurando que la base de datos '{sa_client.dbname}' existe...")
+        pg_repository.create_database_if_not_exists()
+        logging.info("Base de datos lista.")
+
+        # --- CORRECCIÓN AQUÍ ---
+        # Obtener engine para operaciones directas usando el cliente
+        engine = pg_repository.sa_client.get_engine()
+        logging.info(f"Intentando eliminar la tabla '{TEST_TABLE_NAME}' si existe (limpieza previa)...")
+        with engine.connect() as conn:
+            try:
+                conn.execute(text(f'DROP TABLE IF EXISTS "{TEST_TABLE_NAME}" CASCADE;').execution_options(autocommit=True))
+                logging.info(f"Tabla '{TEST_TABLE_NAME}' eliminada o no existía.")
+            except (ProgrammingError, SQLAlchemyError) as drop_err:
+                 logging.warning(f"No se pudo eliminar la tabla '{TEST_TABLE_NAME}': {drop_err}")
+
+        sample_df = create_sample_dataframe()
+        logging.info(f"DataFrame de ejemplo creado con columnas: {sample_df.columns.tolist()}")
+        if PK_COLUMN_NAME not in sample_df.columns:
+            logging.error(f"Error de configuración: La PK '{PK_COLUMN_NAME}' no está en el DF.")
+            if engine: engine.dispose()
+            return
+
+        logging.info(f"Llamando a create_table_from_df para '{TEST_TABLE_NAME}' con PK='{PK_COLUMN_NAME}'...")
+        pg_repository.create_table_from_df(
+            table_name=TEST_TABLE_NAME,
+            df=sample_df,
+            primary_key=PK_COLUMN_NAME # Usa 'primary_key' según tu repo
+        )
+        logging.info("Llamada a create_table_from_df completada.")
+
+        logging.info("Verificando si la tabla y la PK fueron creadas correctamente...")
+        # --- CORRECCIÓN AQUÍ ---
+        # Reobtener engine fresco usando el cliente
+        if engine: engine.dispose() # Desechar el anterior
+        engine = pg_repository.sa_client.get_engine()
+        inspector = inspect(engine)
+
+        if not inspector.has_table(TEST_TABLE_NAME):
+            logging.error(f"¡FALLO! La tabla '{TEST_TABLE_NAME}' NO fue encontrada.")
+            if engine: engine.dispose()
+            return
+        logging.info(f"Tabla '{TEST_TABLE_NAME}' encontrada.")
+
+        pk_constraint = None
         try:
-            create_database(engine_default_db.url)
-            logging.info(f"Base de datos '{db_name}' creada exitosamente.")
-        except ProgrammingError as e:
-            logging.error(f"Error de permisos al intentar crear la base de datos '{db_name}': {e}")
-            logging.error("Asegúrate de que el usuario 'postgres' tenga permisos para crear bases de datos.")
-            raise
-        except Exception as e:
-            logging.error(f"Error inesperado al crear la base de datos '{db_name}': {e}")
-            raise
-    else:
-        logging.info(f"La base de datos '{db_name}' ya existe.")
+            pk_constraint = inspector.get_pk_constraint(TEST_TABLE_NAME)
+        except Exception as inspect_err:
+             logging.error(f"Error al obtener la PK de '{TEST_TABLE_NAME}': {inspect_err}")
+             if engine: engine.dispose()
+             return
 
-def test_connection(engine, db_name):
-    """Prueba la conexión a una base de datos específica."""
-    logging.info(f"Probando conexión a la base de datos '{db_name}'...")
-    try:
-        with engine.connect() as connection:
-            result = connection.execute(text("SELECT version();"))
-            version = result.scalar()
-            logging.info(f"Conexión a '{db_name}' exitosa. Versión PostgreSQL: {version}")
-            return True
-    except OperationalError as e:
-        logging.error(f"No se pudo conectar a la base de datos '{db_name}': {e}")
-        logging.error("Verifica que el servidor esté corriendo, las credenciales sean correctas y la DB exista.")
-        return False
+        if not pk_constraint or not pk_constraint.get('constrained_columns'):
+            logging.error(f"¡FALLO! No se encontró PRIMARY KEY en '{TEST_TABLE_NAME}'. Constraint: {pk_constraint}")
+            if engine: engine.dispose()
+            return
+
+        pk_columns = pk_constraint['constrained_columns']
+        if PK_COLUMN_NAME not in pk_columns:
+            logging.error(f"¡FALLO! PK encontrada {pk_columns}, se esperaba '{PK_COLUMN_NAME}'.")
+            if engine: engine.dispose()
+            return
+
+        logging.info(f"PRIMARY KEY encontrada en columna(s): {pk_columns}")
+        logging.info("¡ÉXITO! Tabla creada y PK verificada.")
+
+        logging.info(f"Intentando insertar datos de ejemplo en '{TEST_TABLE_NAME}'...")
+        pg_repository.insert_table(TEST_TABLE_NAME, sample_df)
+        logging.info("Datos de ejemplo insertados.")
+
+        with engine.connect() as conn:
+            count = None
+            try:
+                count_result = conn.execute(text(f'SELECT COUNT(*) FROM "{TEST_TABLE_NAME}"'))
+                count = count_result.scalar()
+                logging.info(f"Verificación de conteo: {count} filas encontradas (esperado: {len(sample_df)}).")
+                if count != len(sample_df):
+                     logging.warning("El conteo de filas post-inserción no coincide.")
+            except Exception as count_err:
+                 logging.error(f"Error al verificar conteo de filas: {count_err}")
+
+    except (ConnectionError, ValueError, RuntimeError, PermissionError, SQLAlchemyError, ProgrammingError) as e:
+        logging.error(f"Error durante la prueba: {e}", exc_info=True)
     except Exception as e:
-        logging.error(f"Error inesperado al conectar a '{db_name}': {e}")
-        return False
-
-if __name__ == "__main__":
-    logging.info("--- Iniciando Script de Prueba de Conexión y Creación de BBDD PostgreSQL ---")
-
-    # 1. Crear engine para conectar a la base de datos por defecto ('postgres')
-    logging.info(f"Conectando a la base de datos por defecto '{PG_DEFAULT_DBNAME}' para tareas administrativas...")
-    engine_default = None
-    try:
-        # Usamos isolation_level='AUTOCOMMIT' para poder ejecutar CREATE DATABASE fuera de una transacción
-        engine_default = create_engine(DEFAULT_DB_URL, isolation_level='AUTOCOMMIT')
-        # Probamos la conexión inicial
-        if not test_connection(engine_default, PG_DEFAULT_DBNAME):
-             exit(1) # Salir si no se puede conectar a la DB por defecto
-
-        # 2. Verificar y crear la base de datos objetivo si no existe
-        # Construimos la URL objetivo para que sqlalchemy_utils sepa qué crear
-        target_url_for_creation = TARGET_DB_URL
-        target_engine_for_creation = create_engine(target_url_for_creation, isolation_level='AUTOCOMMIT')
-        check_and_create_db(target_engine_for_creation, PG_TARGET_DBNAME)
-
-        # 3. Crear engine para la base de datos objetivo y probar conexión
-        logging.info(f"Creando engine para la base de datos objetivo '{PG_TARGET_DBNAME}'...")
-        engine_target = create_engine(TARGET_DB_URL)
-        test_connection(engine_target, PG_TARGET_DBNAME)
-
-        logging.info("--- Script de Prueba Finalizado ---")
-
-    except Exception as e:
-        logging.error(f"Error general durante la ejecución del script: {e}")
-
+        logging.exception(f"Error inesperado durante la prueba: {e}")
     finally:
-        # Limpiar engines si fueron creados
-        if engine_default:
-            engine_default.dispose()
-            logging.info(f"Engine para '{PG_DEFAULT_DBNAME}' cerrado.")
-        if 'engine_target' in locals() and engine_target:
-            engine_target.dispose()
-            logging.info(f"Engine para '{PG_TARGET_DBNAME}' cerrado.")
+        if engine:
+            logging.info(f"Intentando eliminar tabla '{TEST_TABLE_NAME}' (limpieza final)...")
+            try:
+                 with engine.connect() as conn:
+                      conn.execute(text(f'DROP TABLE IF EXISTS "{TEST_TABLE_NAME}" CASCADE;').execution_options(autocommit=True))
+                      logging.info("Tabla de prueba eliminada.")
+            except Exception as final_clean_e:
+                 logging.error(f"Error en la limpieza final: {final_clean_e}")
+            finally:
+                 engine.dispose()
+        logging.info("--- Test Finalizado ---")
+
+
+# --- Punto de Entrada ---
+if __name__ == "__main__":
+    run_test()
