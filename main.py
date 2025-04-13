@@ -173,6 +173,4 @@ def main():
 
 
 if __name__ == "__main__":
-    # Asegurarse de que el logging esté configurado antes de llamar a main
-    # (ya está hecho arriba con basicConfig)
     main()
