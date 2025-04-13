@@ -1,47 +1,44 @@
 # domain/services/transform_service.py
-
-"""
-domain/services/transform_service.py
-Lógica de transformaciones (limpieza, merges) usando pandas.
-"""
+import logging
+from typing import Dict, Any, List, Set
 import pandas as pd
 
 class TransformService:
     """
-    Encapsula la lógica de transformaciones de datos con pandas
-    (ejemplo: filtrar, hacer merges, etc.).
+    Contiene lógica de transformación de datos desacoplada.
     """
     def __init__(self):
-        # Configuraciones globales de pandas (opcional)
-        pd.set_option('display.max_columns', None)
-        pd.set_option('display.expand_frame_repr', False)
+        self.logger = logging.getLogger(__name__)
 
-    def transform_customer_financial(self, customers_json: dict, financial_json: dict):
+    def filter_companies(self, companies_data: Dict[str, Any], excluded_ids: Set[str]) -> Dict[str, Any]:
         """
-        Toma el JSON de clientes y detalles financieros, realiza
-        filtrados y joins, y devuelve un DataFrame resultante.
+        Filtra una lista de compañías (en formato JSON OData) para excluir IDs específicos.
+
+        :param companies_data: Diccionario con la clave 'value' conteniendo una lista de diccionarios de compañías.
+        :param excluded_ids: Un set con las IDs de las compañías a excluir.
+        :return: Un nuevo diccionario con la misma estructura, pero con la lista 'value' filtrada.
+                 Devuelve un diccionario con 'value' vacío si la entrada es inválida o no hay resultados.
         """
-        df_customers = pd.DataFrame(customers_json['value'])
-        df_customer_financial = pd.DataFrame(financial_json['value'])
+        if not companies_data or "value" not in companies_data or not isinstance(companies_data["value"], list):
+            self.logger.warning("Formato de datos de compañías inválido o vacío recibido para filtrar.")
+            return {"value": []} # Devolver estructura válida pero vacía
 
-        # Columnas deseadas
-        df_deseado1 = [
-            'id', 'number', 'displayName',
-            'addressLine1', 'city', 'state', 'postalCode', 'currencyId'
+        original_list = companies_data["value"]
+        self.logger.debug(f"Filtrando {len(original_list)} compañías. Excluyendo IDs: {excluded_ids}")
+
+        filtered_list = [
+            comp for comp in original_list
+            if comp.get("id") not in excluded_ids
         ]
-        df_deseado2 = [
-            'id', 'number', 'balance', 'totalSalesExcludingTax', 'overdueAmount'
-        ]
 
-        df_filtrado = df_customers[df_deseado1]
-        df_filtrado2 = df_customer_financial[df_deseado2]
+        filtered_count = len(original_list) - len(filtered_list)
+        if filtered_count > 0:
+            self.logger.info(f"Se filtraron {filtered_count} compañías excluidas.")
+        else:
+             self.logger.debug("No se encontraron compañías para excluir según los IDs proporcionados.")
 
-        # Merge
-        df_join = df_filtrado.merge(df_filtrado2, how='left', on='id')
+        return {"value": filtered_list}
 
-        # Comprobar que las columnas number_x y number_y sean idénticas
-        if (df_join['number_x'] == df_join['number_y']).all():
-            df_join.drop(columns=['number_y'], inplace=True)
-            df_join.rename(columns={'number_x': 'number'}, inplace=True)
-
-        return df_join
+    # --- Aquí podrías añadir más métodos de transformación en el futuro ---
+    # ej: def clean_project_names(self, projects_data: Dict[str, Any]) -> Dict[str, Any]: ...
+    # ej: def enrich_company_data(self, companies_data: Dict[str, Any], external_source) -> Dict[str, Any]: ...
