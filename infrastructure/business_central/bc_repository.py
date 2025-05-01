@@ -10,134 +10,165 @@ from typing import Dict, Any, Optional
 
 # Asumiendo interfaces y cliente en rutas accesibles
 try:
-    from domain.repositories.interfaces import BusinessCentralRepositoryInterface
+    # from domain.repositories.interfaces import BusinessCentralRepositoryInterface # Descomentar si usas interfaz
     from infrastructure.business_central.bc_client import BCClient
 except ImportError as e:
      logging.critical(f"Error importando dependencias en BCRepository: {e}")
-     BusinessCentralRepositoryInterface = None
+     # class BusinessCentralRepositoryInterface: pass # Placeholder si no usas interfaz
      BCClient = None
 
-class BCRepository(BusinessCentralRepositoryInterface):
+# Quitar 'BusinessCentralRepositoryInterface' si no la defines/usas
+class BCRepository: # (BusinessCentralRepositoryInterface):
     """
-    Implementa las operaciones para obtener datos de Business Central
-    a través del BCClient, manejando posibles respuestas nulas del cliente.
+    Implementa operaciones para obtener datos de BC vía BCClient.
+    Maneja respuestas None y devuelve estructuras vacías consistentes.
+    Distingue entre llamadas API v2 (por ID) y OData v4 (por Nombre, según URLs de ejemplo).
     """
     def __init__(self, bc_client: BCClient):
-        """
-        Inicializa el repositorio con una instancia de BCClient.
-
-        :param bc_client: Cliente para interactuar con la API de BC.
-        :raises TypeError: Si bc_client no es una instancia de BCClient.
-        """
-        if BCClient is None: # Comprobar importación
-             raise ImportError("Clase BCClient no importada correctamente.")
-        if not isinstance(bc_client, BCClient):
-             raise TypeError("bc_client debe ser una instancia de BCClient.")
+        if BCClient is None: raise ImportError("Clase BCClient no importada.")
+        if not isinstance(bc_client, BCClient): raise TypeError("bc_client debe ser instancia de BCClient.")
         self.bc_client = bc_client
         self.logger = logging.getLogger(__name__)
         self.logger.info("BCRepository inicializado.")
 
-    def _handle_client_response(self, response: Optional[Dict[str, Any]], operation_name: str, default_empty: Any = {"value": []}) -> Dict[str, Any]:
-        """
-        Helper interno para verificar y loguear respuestas del cliente.
-        Devuelve la respuesta si es válida, o un valor por defecto vacío.
-        """
+    def _handle_client_response(self, response: Optional[Dict[str, Any]], operation_name: str, default_empty: Any = {"value": []}) -> Optional[Dict[str, Any]]:
+        """Helper para manejar respuestas del cliente."""
         if response is None:
-            self.logger.warning(f"La operación '{operation_name}' no devolvió datos (respuesta None del cliente).")
+            self.logger.warning(f"Operación cliente '{operation_name}' devolvió None. Se devuelve valor por defecto: {default_empty}")
             return default_empty
-        # Podríamos añadir más validaciones aquí si fuera necesario (ej. verificar presencia de 'value')
-        self.logger.debug(f"Operación '{operation_name}' devolvió datos.")
+        # Podríamos añadir validación de 'value' si siempre se espera
+        # if default_empty == {"value": []} and (not isinstance(response, dict) or "value" not in response):
+        #    self.logger.error(f"Respuesta inesperada de '{operation_name}': {response}. Se esperaba {{'value': [...]}}.")
+        #    return {"value": []}
+        self.logger.debug(f"Operación cliente '{operation_name}' retornó datos.")
         return response
 
+    # --- Métodos API v2.0 (usan company_id) ---
     def get_companies(self) -> Dict[str, Any]:
-        """Obtiene compañías. Devuelve {"value": []} si falla."""
-        self.logger.info("Repositorio: Obteniendo compañías...")
+        self.logger.info("Repositorio: Obteniendo compañías (API v2)...")
         try:
             data = self.bc_client.fetch_companies()
-            return self._handle_client_response(data, "fetch_companies")
-        except Exception as e:
-            # Capturar cualquier excepción inesperada del cliente o la llamada
-            self.logger.error(f"Error inesperado en get_companies: {e}", exc_info=True)
-            return {"value": []} # Devolver vacío consistente
-
-    def get_entity_definitions(self, company_id: str) -> Dict[str, Any]:
-        """Obtiene entityDefinitions para una compañía. Devuelve {"value": []} si falla."""
-        self.logger.info(f"Repositorio: Obteniendo entity definitions para compañía ID: {company_id}")
-        if not company_id:
-            self.logger.warning("get_entity_definitions llamado sin company_id.")
-            return {"value": []}
-        try:
-            data = self.bc_client.fetch_entity_definitions(company_id)
-            return self._handle_client_response(data, f"fetch_entity_definitions({company_id})")
-        except Exception as e:
-            self.logger.error(f"Error inesperado en get_entity_definitions para {company_id}: {e}", exc_info=True)
-            return {"value": []}
+            return self._handle_client_response(data, "fetch_companies") or {"value": []}
+        except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {"value": []}
 
     def get_projects(self, company_id: str) -> Dict[str, Any]:
-        """Obtiene proyectos para una compañía. Devuelve {"value": []} si falla."""
-        self.logger.info(f"Repositorio: Obteniendo proyectos para compañía ID: {company_id}")
-        if not company_id:
-            self.logger.warning("get_projects llamado sin company_id.")
-            return {"value": []}
+        self.logger.info(f"Repositorio: Obteniendo proyectos (API v2) para Cia ID: {company_id}")
+        if not company_id: return {"value": []}
         try:
             data = self.bc_client.fetch_projects(company_id)
-            return self._handle_client_response(data, f"fetch_projects({company_id})")
-        except Exception as e:
-            self.logger.error(f"Error inesperado en get_projects para {company_id}: {e}", exc_info=True)
-            return {"value": []}
-
-    def get_company_raw_data(self, company_id: str) -> Optional[Dict[str, Any]]:
-        """Obtiene datos raw de una compañía. Devuelve None si falla."""
-        self.logger.info(f"Repositorio: Obteniendo datos raw para compañía ID: {company_id}")
-        if not company_id:
-            self.logger.warning("get_company_raw_data llamado sin company_id.")
-            return None
-        try:
-            # Usar un default diferente para indicar fallo vs. no encontrado
-            data = self.bc_client.fetch_company_raw_data(company_id)
-            return self._handle_client_response(data, f"fetch_company_raw_data({company_id})", default_empty=None)
-        except Exception as e:
-            self.logger.error(f"Error inesperado en get_company_raw_data para {company_id}: {e}", exc_info=True)
-            return None
-
-    def get_project_tasks(self, company_id: str, project_id: str) -> Dict[str, Any]:
-        """Obtiene tareas de proyecto. Devuelve {"value": []} si falla."""
-        self.logger.info(f"Repositorio: Obteniendo tareas para proyecto ID: {project_id} (Compañía: {company_id})")
-        if not company_id or not project_id:
-            self.logger.warning("get_project_tasks llamado sin company_id o project_id.")
-            return {"value": []}
-        try:
-            data = self.bc_client.fetch_project_tasks(company_id, project_id)
-            return self._handle_client_response(data, f"fetch_project_tasks({company_id}, {project_id})")
-        except Exception as e:
-            self.logger.error(f"Error inesperado en get_project_tasks para {project_id}: {e}", exc_info=True)
-            return {"value": []}
-
-    def get_entities(self) -> Dict[str, Any]:
-        """Obtiene entidades generales (si el cliente lo soporta). Devuelve {"value": []} si falla."""
-        self.logger.info("Repositorio: Obteniendo entidades generales...")
-        try:
-            # Verificar si el método existe en el cliente antes de llamarlo
-            if hasattr(self.bc_client, 'fetch_entities') and callable(getattr(self.bc_client, 'fetch_entities')):
-                data = self.bc_client.fetch_entities()
-                return self._handle_client_response(data, "fetch_entities")
-            else:
-                self.logger.warning("El método 'fetch_entities' no está implementado en BCClient.")
-                return {"value": []}
-        except Exception as e:
-            self.logger.error(f"Error inesperado en get_entities: {e}", exc_info=True)
-            return {"value": []}
+            return self._handle_client_response(data, f"fetch_projects({company_id})") or {"value": []}
+        except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {"value": []}
 
     def get_customers(self, company_id: str) -> Dict[str, Any]:
-        """Obtiene clientes para una compañía. Devuelve {"value": []} si falla."""
-        self.logger.info(f"Repositorio: Obteniendo clientes para compañía ID: {company_id}")
-        if not company_id:
-            self.logger.warning("get_customers llamado sin company_id.")
-            return {"value": []}
+         self.logger.info(f"Repositorio: Obteniendo clientes (API v2) para Cia ID: {company_id}")
+         if not company_id: return {"value": []}
+         try:
+             data = self.bc_client.fetch_customers(company_id)
+             return self._handle_client_response(data, f"fetch_customers({company_id})") or {"value": []}
+         except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {"value": []}
+
+    def get_project_tasks(self, company_id: str, project_id: str) -> Dict[str, Any]:
+         self.logger.info(f"Repositorio: Obteniendo tareas Proy ID: {project_id} (Cia ID: {company_id})")
+         if not company_id or not project_id: return {"value": []}
+         try:
+             data = self.bc_client.fetch_project_tasks(company_id, project_id)
+             return self._handle_client_response(data, f"fetch_project_tasks({company_id},{project_id})") or {"value": []}
+         except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {"value": []}
+
+    # --- Métodos ODataV4 (usan company_name) ---
+    def get_job_ledger_entries(self, company_name: str) -> Dict[str, Any]:
+        self.logger.info(f"Repositorio: Obteniendo JobLedgerEntries (OData) Cia: '{company_name}'")
+        if not company_name: return {"value": []}
         try:
-            data = self.bc_client.fetch_customers(company_id)
-            # Usar el helper para manejar respuesta None
-            return self._handle_client_response(data, f"fetch_customers({company_id})")
-        except Exception as e:
-            self.logger.error(f"Error inesperado en get_customers para {company_id}: {e}", exc_info=True)
-            return {"value": []}
+            data = self.bc_client.fetch_job_ledger_entries_odata(company_name)
+            return self._handle_client_response(data, f"fetch_job_ledger_entries_odata('{company_name}')") or {"value": []}
+        except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {"value": []}
+
+    def get_job_list(self, company_name: str) -> Dict[str, Any]:
+        self.logger.info(f"Repositorio: Obteniendo Job_List (OData) Cia: '{company_name}'")
+        if not company_name: return {"value": []}
+        try:
+            data = self.bc_client.fetch_job_list_odata(company_name)
+            return self._handle_client_response(data, f"fetch_job_list_odata('{company_name}')") or {"value": []}
+        except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {"value": []}
+
+    def get_job_planning_lines(self, company_name: str) -> Dict[str, Any]:
+        self.logger.info(f"Repositorio: Obteniendo Job_Planning_Lines (OData) Cia: '{company_name}'")
+        if not company_name: return {"value": []}
+        try:
+            data = self.bc_client.fetch_job_planning_lines_odata(company_name)
+            return self._handle_client_response(data, f"fetch_job_planning_lines_odata('{company_name}')") or {"value": []}
+        except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {"value": []}
+
+    def get_job_task_lines(self, company_name: str) -> Dict[str, Any]:
+        self.logger.info(f"Repositorio: Obteniendo Job_Task_Lines (OData) Cia: '{company_name}'")
+        if not company_name: return {"value": []}
+        try:
+            data = self.bc_client.fetch_job_task_lines_odata(company_name)
+            return self._handle_client_response(data, f"fetch_job_task_lines_odata('{company_name}')") or {"value": []}
+        except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {"value": []}
+
+    def get_customer_list(self, company_name: str) -> Dict[str, Any]:
+        self.logger.info(f"Repositorio: Obteniendo CustomerList (OData) Cia: '{company_name}'")
+        if not company_name: return {"value": []}
+        try:
+            data = self.bc_client.fetch_customer_list_odata(company_name)
+            return self._handle_client_response(data, f"fetch_customer_list_odata('{company_name}')") or {"value": []}
+        except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {"value": []}
+
+    def get_customer_ledger_entries(self, company_name: str) -> Dict[str, Any]:
+        self.logger.info(f"Repositorio: Obteniendo CustomerLedgerEntries (OData) Cia: '{company_name}'")
+        if not company_name: return {"value": []}
+        try:
+            data = self.bc_client.fetch_customer_ledger_entries_odata(company_name)
+            return self._handle_client_response(data, f"fetch_customer_ledger_entries_odata('{company_name}')") or {"value": []}
+        except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {"value": []}
+
+    def get_vendor_list(self, company_name: str) -> Dict[str, Any]:
+        self.logger.info(f"Repositorio: Obteniendo VendorList (OData) Cia: '{company_name}'")
+        if not company_name: return {"value": []}
+        try:
+            data = self.bc_client.fetch_vendor_list_odata(company_name)
+            return self._handle_client_response(data, f"fetch_vendor_list_odata('{company_name}')") or {"value": []}
+        except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {"value": []}
+
+    def get_vendor_ledger_entries(self, company_name: str) -> Dict[str, Any]:
+        self.logger.info(f"Repositorio: Obteniendo VendorLedgerEntries (OData) Cia: '{company_name}'")
+        if not company_name: return {"value": []}
+        try:
+            data = self.bc_client.fetch_vendor_ledger_entries_odata(company_name)
+            return self._handle_client_response(data, f"fetch_vendor_ledger_entries_odata('{company_name}')") or {"value": []}
+        except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {"value": []}
+
+    def get_purchase_documents(self, company_name: str) -> Dict[str, Any]:
+        self.logger.info(f"Repositorio: Obteniendo purchaseDocuments (OData) Cia: '{company_name}'")
+        if not company_name: return {"value": []}
+        try:
+            data = self.bc_client.fetch_purchase_documents_odata(company_name)
+            return self._handle_client_response(data, f"fetch_purchase_documents_odata('{company_name}')") or {"value": []}
+        except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {"value": []}
+
+    def get_sales_documents(self, company_name: str) -> Dict[str, Any]:
+        self.logger.info(f"Repositorio: Obteniendo salesDocuments (OData) Cia: '{company_name}'")
+        if not company_name: return {"value": []}
+        try:
+            data = self.bc_client.fetch_sales_documents_odata(company_name)
+            return self._handle_client_response(data, f"fetch_sales_documents_odata('{company_name}')") or {"value": []}
+        except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {"value": []}
+
+     # --- Otros métodos existentes (get_company_raw_data, etc.) SIN CAMBIOS ---
+    def get_company_raw_data(self, company_id: str) -> Optional[Dict[str, Any]]:
+        self.logger.info(f"Repositorio: Obteniendo datos raw (API v2) Cia ID: {company_id}")
+        if not company_id: return None
+        try:
+            data = self.bc_client.fetch_company_raw_data(company_id)
+            return self._handle_client_response(data, f"fetch_company_raw_data({company_id})", default_empty=None)
+        except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return None
+
+    def get_entity_definitions(self, company_id: str) -> Dict[str, Any]:
+        self.logger.info(f"Repositorio: Obteniendo entity definitions (API v2) Cia ID: {company_id}")
+        if not company_id: return {"value": []}
+        try:
+            data = self.bc_client.fetch_entity_definitions(company_id)
+            return self._handle_client_response(data, f"fetch_entity_definitions({company_id})") or {"value": []}
+        except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {"value": []}

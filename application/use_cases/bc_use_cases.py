@@ -1,27 +1,29 @@
+# application/use_cases/bc_use_cases.py
+
 """
 application/use_cases/bc_use_cases.py
 Casos de uso para interactuar con Business Central, incluyendo transformaciones básicas.
+Coordina la obtención de datos (vía Repositorio) y su posible transformación (vía Servicio).
+Todos los métodos get_company_* aceptan (company_id, context) por consistencia de firma,
+aunque solo los métodos OData usan activamente el contexto para buscar el nombre.
 """
 import logging
-from typing import Dict, Any, Set # Set ya no es necesario para get_companies
+from typing import Dict, Any, Optional
 
-# Asumiendo que las interfaces/clases están correctamente ubicadas para la importación
+# Asumiendo que las interfaces/clases están correctamente ubicadas
 try:
-    from domain.repositories.interfaces import BusinessCentralRepositoryInterface
+    # from domain.repositories.interfaces import BusinessCentralRepositoryInterface
+    from infrastructure.business_central.bc_repository import BCRepository as BusinessCentralRepositoryInterface # Usar clase concreta si no hay interfaz
     from domain.services.transform_service import TransformService
 except ImportError as e:
-     logging.critical(f"Error importando dependencias de dominio/repositorio: {e}")
-     # Definir placeholders para evitar errores de carga inmediatos
+     logging.critical(f"Error importando dependencias de dominio/repositorio en BCUseCases: {e}")
      BusinessCentralRepositoryInterface = None
      TransformService = None
-
-# Ya NO necesitamos DEFAULT_EXCLUDED_COMPANY_IDS aquí
 
 class BCUseCases:
     """
     Clase que orquesta la obtención y la lógica de negocio (incluyendo transformaciones)
-    para datos de Business Central. Las transformaciones específicas (como filtros)
-    se delegan a TransformService, que a su vez puede usar configuración externa.
+    para datos de Business Central. Las transformaciones específicas se delegan a TransformService.
     """
 
     def __init__(self, bc_repository: BusinessCentralRepositoryInterface, transform_service: TransformService):
@@ -31,159 +33,201 @@ class BCUseCases:
         :param bc_repository: Repositorio para acceder a los datos de BC.
         :param transform_service: Servicio para aplicar transformaciones a los datos.
         """
-        # Validar dependencias importadas
         if BusinessCentralRepositoryInterface is None or TransformService is None:
-            raise ImportError("Dependencias de dominio (Repositorio/Servicio) no cargadas correctamente.")
-        if not isinstance(bc_repository, BusinessCentralRepositoryInterface):
-             raise TypeError("bc_repository debe implementar BusinessCentralRepositoryInterface.")
-        if not isinstance(transform_service, TransformService):
-             raise TypeError("transform_service debe ser una instancia de TransformService.")
+            raise ImportError("Dependencias de Repositorio/Servicio no cargadas correctamente en BCUseCases.")
+        # Ajustar la comprobación si no usas una interfaz formal
+        if not hasattr(bc_repository, 'get_companies'): raise TypeError("bc_repository debe tener métodos esperados.")
+        if not isinstance(transform_service, TransformService): raise TypeError("transform_service debe ser instancia de TransformService.")
 
         self.bc_repository = bc_repository
         self.transform_service = transform_service
-        self.logger = logging.getLogger(__name__) # Logger específico
+        self.logger = logging.getLogger(__name__)
 
-    def get_entities(self) -> Dict[str, Any]:
+    # --- Helper Interno (Sigue siendo útil para métodos OData) ---
+    def _get_company_name_from_id(self, company_id: str, context: Dict[str, Any]) -> Optional[str]:
         """
-        Obtiene el JSON de entidades disponibles en BC.
+        Intenta obtener el nombre de la compañía usando el ID, buscando en el contexto.
+        Esencial para traducir ID a Nombre para llamadas OData que lo requieran.
         """
-        self.logger.info("Iniciando caso de uso: Obtener Entidades.")
-        try:
-            self.logger.debug("Llamando a BCRepository.get_entities...")
-            entities_data = self.bc_repository.get_entities()
-            self.logger.info(f"Entidades obtenidas: {len(entities_data.get('value',[]))} encontradas.")
-            return entities_data
-        except Exception as e:
-            self.logger.error(f"Error al obtener entidades: {e}", exc_info=True)
-            return {"value": []} # Devolver estructura vacía en error
+        self.logger.debug(f"Buscando nombre para company_id: {company_id}")
+        companies_data = context.get("companies_json", {})
+        companies_list = companies_data.get("value", [])
+        if not companies_list:
+            self.logger.warning("No hay lista de compañías ('companies_json') en el contexto para buscar nombre por ID.")
+            return None
 
-    # --- MÉTODO SIMPLIFICADO ---
+        for comp in companies_list:
+            if comp.get("id") == company_id:
+                name = comp.get("name")
+                if name:
+                     self.logger.debug(f"Nombre encontrado para ID {company_id}: '{name}'")
+                     return name
+                else:
+                     self.logger.warning(f"Compañía con ID {company_id} encontrada pero sin campo 'name'.")
+                     return None
+
+        self.logger.warning(f"No se encontró compañía con ID '{company_id}' en context['companies_json'].")
+        return None
+
+    # --- Casos de Uso (Todos aceptan company_id y context) ---
+
     def get_companies(self) -> Dict[str, Any]:
-        """
-        Obtiene las compañías del repositorio y aplica el filtrado configurado
-        a través del TransformService.
-
-        :return: Diccionario JSON con la lista de compañías filtradas.
-                 Devuelve {"value": []} en caso de error.
-        """
-        # Ya no necesita el parámetro excluded_ids
-        self.logger.info("Iniciando caso de uso: Obtener Compañías (con filtro de config aplicado por TransformService).")
+        """Obtiene compañías y aplica filtro de exclusión."""
+        self.logger.info("Use Case: Obteniendo compañías filtradas...")
         try:
-            # 1. Extracción
-            self.logger.debug("Llamando a BCRepository.get_companies...")
-            raw_companies_data = self.bc_repository.get_companies()
-            self.logger.debug(f"Datos brutos obtenidos: {len(raw_companies_data.get('value',[]))} compañías.")
+            raw_data = self.bc_repository.get_companies()
+            if not raw_data or "value" not in raw_data: return {"value": []}
+            filtered_data = self.transform_service.filter_companies(raw_data)
+            self.logger.info(f"Compañías filtradas. Resultado: {len(filtered_data.get('value',[]))}.")
+            return filtered_data
+        except Exception as e: self.logger.error(f"Error en get_companies: {e}", exc_info=True); return {"value": []}
 
-            if not raw_companies_data or "value" not in raw_companies_data:
-                 self.logger.warning("No se recibieron datos válidos de compañías del repositorio.")
-                 return {"value": []}
-
-            # 2. Transformación (Delegada al servicio)
-            self.logger.debug("Aplicando filtro de compañías vía TransformService...")
-            # Simplemente llamamos al método del servicio; él ya sabe qué excluir
-            filtered_companies_data = self.transform_service.filter_companies(raw_companies_data)
-            # El transform_service debería loguear los detalles del filtrado
-            self.logger.info(f"Compañías filtradas por TransformService. Resultado: {len(filtered_companies_data.get('value',[]))} compañías.")
-
-            return filtered_companies_data
-
-        except Exception as e:
-             self.logger.error(f"Error en el caso de uso get_companies: {e}", exc_info=True)
-             return {"value": []}
-
-    def get_company_entity_definitions(self, company_id: str) -> Dict[str, Any]:
-        """
-        Obtiene el JSON con las entityDefinitions de una compañía concreta.
-        """
-        self.logger.info(f"Iniciando caso de uso: Obtener EntityDefinitions para Compañía ID: {company_id}")
+    # Métodos API V2: Aceptan context por consistencia, pero lo ignoran
+    def get_company_projects(self, company_id: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Obtiene proyectos de una compañía (API v2). Ignora el contexto."""
+        self.logger.info(f"Use Case: Obteniendo proyectos (API v2) para Cia ID: {company_id}")
+        if not company_id: self.logger.warning("ID de compañía vacío."); return {"value": []}
         try:
-            # Validar company_id (simple)
-            if not company_id or not isinstance(company_id, str):
-                 self.logger.error("company_id inválido proporcionado para get_company_entity_definitions.")
-                 return {"value": []}
-            self.logger.debug(f"Llamando a BCRepository.get_entity_definitions para '{company_id}'...")
-            definitions = self.bc_repository.get_entity_definitions(company_id)
-            self.logger.info(f"EntityDefinitions obtenidas para '{company_id}': {len(definitions.get('value',[]))} definiciones.")
-            return definitions
-        except Exception as e:
-             self.logger.error(f"Error al obtener entity definitions para compañía '{company_id}': {e}", exc_info=True)
-             return {"value": []}
+            data = self.bc_repository.get_projects(company_id) # Llama al repo solo con ID
+            return data or {"value": []}
+        except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {"value": []}
 
-    def get_company_raw_data(self, company_id: str) -> Dict[str, Any]:
-        """
-        Obtiene el JSON que trae /companies({companyId})/.
-        """
-        self.logger.info(f"Iniciando caso de uso: Obtener Datos Raw para Compañía ID: {company_id}")
-        try:
-            if not company_id or not isinstance(company_id, str):
-                 self.logger.error("company_id inválido proporcionado para get_company_raw_data.")
-                 return {}
-            self.logger.debug(f"Llamando a BCRepository.get_company_raw_data para '{company_id}'...")
-            raw_data = self.bc_repository.get_company_raw_data(company_id)
-            if raw_data: self.logger.info(f"Datos raw obtenidos para '{company_id}'.")
-            else: self.logger.warning(f"No se obtuvieron datos raw para '{company_id}'.")
-            return raw_data if raw_data else {}
-        except Exception as e:
-             self.logger.error(f"Error al obtener datos raw para compañía '{company_id}': {e}", exc_info=True)
-             return {}
+    def get_company_customers(self, company_id: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+         """Obtiene clientes de una compañía (API v2). Ignora el contexto."""
+         self.logger.info(f"Use Case: Obteniendo clientes (API v2) para Cia ID: {company_id}")
+         if not company_id: self.logger.warning("ID de compañía vacío."); return {"value": []}
+         try:
+             data = self.bc_repository.get_customers(company_id) # Llama al repo solo con ID
+             return data or {"value": []}
+         except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {"value": []}
 
-    def get_company_projects(self, company_id: str) -> Dict[str, Any]:
-        """
-        Obtiene el JSON con los proyectos de una compañía.
-        """
-        self.logger.info(f"Iniciando caso de uso: Obtener Proyectos para Compañía ID: {company_id}")
-        try:
-            if not company_id or not isinstance(company_id, str):
-                 self.logger.error("company_id inválido proporcionado para get_company_projects.")
-                 return {"value": []}
-            self.logger.debug(f"Llamando a BCRepository.get_projects para '{company_id}'...")
-            projects_data = self.bc_repository.get_projects(company_id)
-            self.logger.info(f"Proyectos obtenidos para '{company_id}': {len(projects_data.get('value',[]))} registros.")
-            # Aquí se podrían aplicar transformaciones específicas de proyectos si fuera necesario
-            # projects_data = self.transform_service.clean_project_names(projects_data)
-            return projects_data
-        except Exception as e:
-            self.logger.error(f"Error en caso de uso get_company_projects para ID '{company_id}': {e}", exc_info=True)
-            return {"value": []}
-
+    # Este método tiene firma diferente, lo dejamos como está
     def get_project_tasks_for_project(self, company_id: str, project_id: str) -> Dict[str, Any]:
-        """
-        Obtiene jobTasks para un proyecto específico.
-        """
-        self.logger.info(f"Iniciando caso de uso: Obtener Tareas para Proyecto ID: {project_id} (Compañía: {company_id})")
+         """Obtiene tareas de proyecto (API v2)."""
+         self.logger.info(f"Use Case: Obteniendo Tareas Proy: {project_id} (Cia ID: {company_id})")
+         if not company_id or not project_id: return {"value": []}
+         try:
+             data = self.bc_repository.get_project_tasks(company_id, project_id)
+             return data or {"value": []}
+         except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {"value": []}
+
+    # --- Casos de Uso ODataV4 (Usan context para buscar nombre por ID) ---
+
+    def get_company_job_ledger_entries(self, company_id: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Obtiene JobLedgerEntries (ODataV4) buscando el nombre por ID."""
+        company_name = self._get_company_name_from_id(company_id, context)
+        if not company_name: return {"value": []}
+        self.logger.info(f"Use Case: Obteniendo JobLedgerEntries (OData) para Cia: '{company_name}'")
         try:
-            if not company_id or not project_id or not isinstance(company_id, str) or not isinstance(project_id, str):
-                 self.logger.error("IDs inválidos proporcionados para get_project_tasks_for_project.")
-                 return {"value": []}
-            self.logger.debug(f"Llamando a BCRepository.get_project_tasks para proyecto '{project_id}'...")
-            tasks_data = self.bc_repository.get_project_tasks(company_id, project_id)
-            self.logger.info(f"Tareas obtenidas para proyecto '{project_id}': {len(tasks_data.get('value',[]))} tareas.")
-            return tasks_data
-        except Exception as e:
-             self.logger.error(f"Error al obtener tareas para proyecto '{project_id}' (compañía '{company_id}'): {e}", exc_info=True)
-             return {"value": []}
+            data = self.bc_repository.get_job_ledger_entries(company_name)
+            return data or {"value": []}
+        except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {"value": []}
 
-    def get_company_customers(self, company_id: str) -> Dict[str, Any]:
-        """
-        Obtiene el JSON con los clientes de una compañía.
-        (Podría incluir transformaciones futuras aquí).
-        """
-        self.logger.info(f"Iniciando caso de uso: Obtener Clientes para Compañía ID: {company_id}")
+    def get_company_job_list(self, company_id: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Obtiene Job_List (ODataV4) buscando el nombre por ID."""
+        company_name = self._get_company_name_from_id(company_id, context)
+        if not company_name: return {"value": []}
+        self.logger.info(f"Use Case: Obteniendo Job_List (OData) para Cia: '{company_name}'")
         try:
-            if not company_id or not isinstance(company_id, str):
-                self.logger.error("company_id inválido proporcionado para get_company_customers.")
-                return {"value": []}
-            self.logger.debug(f"Llamando a BCRepository.get_customers para '{company_id}'...")
-            customers_data = self.bc_repository.get_customers(company_id)
-            self.logger.info(
-                f"Clientes obtenidos para '{company_id}': {len(customers_data.get('value', []))} registros.")
+            data = self.bc_repository.get_job_list(company_name)
+            return data or {"value": []}
+        except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {"value": []}
 
-            # --- Punto Potencial para Transformación de Clientes ---
-            # customers_data = self.transform_service.clean_customer_data(customers_data)
-            # self.logger.info("Transformación de datos de clientes aplicada.")
-            # --------------------------------------------------------
+    def get_company_job_planning_lines(self, company_id: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Obtiene Job_Planning_Lines (ODataV4) buscando el nombre por ID."""
+        company_name = self._get_company_name_from_id(company_id, context)
+        if not company_name: return {"value": []}
+        self.logger.info(f"Use Case: Obteniendo Job_Planning_Lines (OData) para Cia: '{company_name}'")
+        try:
+            data = self.bc_repository.get_job_planning_lines(company_name)
+            return data or {"value": []}
+        except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {"value": []}
 
-            return customers_data
-        except Exception as e:
-            self.logger.error(f"Error en caso de uso get_company_customers para ID '{company_id}': {e}", exc_info=True)
-            return {"value": []}
+    def get_company_job_task_lines(self, company_id: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Obtiene Job_Task_Lines (ODataV4) buscando el nombre por ID."""
+        company_name = self._get_company_name_from_id(company_id, context)
+        if not company_name: return {"value": []}
+        self.logger.info(f"Use Case: Obteniendo Job_Task_Lines (OData) para Cia: '{company_name}'")
+        try:
+            data = self.bc_repository.get_job_task_lines(company_name)
+            return data or {"value": []}
+        except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {"value": []}
+
+    def get_company_customer_list(self, company_id: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Obtiene CustomerList (ODataV4) buscando el nombre por ID."""
+        company_name = self._get_company_name_from_id(company_id, context)
+        if not company_name: return {"value": []}
+        self.logger.info(f"Use Case: Obteniendo CustomerList (OData) para Cia: '{company_name}'")
+        try:
+            data = self.bc_repository.get_customer_list(company_name)
+            return data or {"value": []}
+        except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {"value": []}
+
+    def get_company_customer_ledger_entries(self, company_id: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Obtiene CustomerLedgerEntries (ODataV4) buscando el nombre por ID."""
+        company_name = self._get_company_name_from_id(company_id, context)
+        if not company_name: return {"value": []}
+        self.logger.info(f"Use Case: Obteniendo CustomerLedgerEntries (OData) para Cia: '{company_name}'")
+        try:
+            data = self.bc_repository.get_customer_ledger_entries(company_name)
+            return data or {"value": []}
+        except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {"value": []}
+
+    def get_company_vendor_list(self, company_id: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Obtiene VendorList (ODataV4) buscando el nombre por ID."""
+        company_name = self._get_company_name_from_id(company_id, context)
+        if not company_name: return {"value": []}
+        self.logger.info(f"Use Case: Obteniendo VendorList (OData) para Cia: '{company_name}'")
+        try:
+            data = self.bc_repository.get_vendor_list(company_name)
+            return data or {"value": []}
+        except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {"value": []}
+
+    def get_company_vendor_ledger_entries(self, company_id: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Obtiene VendorLedgerEntries (ODataV4) buscando el nombre por ID."""
+        company_name = self._get_company_name_from_id(company_id, context)
+        if not company_name: return {"value": []}
+        self.logger.info(f"Use Case: Obteniendo VendorLedgerEntries (OData) para Cia: '{company_name}'")
+        try:
+            data = self.bc_repository.get_vendor_ledger_entries(company_name)
+            return data or {"value": []}
+        except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {"value": []}
+
+    def get_company_purchase_documents(self, company_id: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Obtiene purchaseDocuments (ODataV4) buscando el nombre por ID."""
+        company_name = self._get_company_name_from_id(company_id, context)
+        if not company_name: return {"value": []}
+        self.logger.info(f"Use Case: Obteniendo purchaseDocuments (OData) para Cia: '{company_name}'")
+        try:
+            data = self.bc_repository.get_purchase_documents(company_name)
+            return data or {"value": []}
+        except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {"value": []}
+
+    def get_company_sales_documents(self, company_id: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        """Obtiene salesDocuments (ODataV4) buscando el nombre por ID."""
+        company_name = self._get_company_name_from_id(company_id, context)
+        if not company_name: return {"value": []}
+        self.logger.info(f"Use Case: Obteniendo salesDocuments (OData) para Cia: '{company_name}'")
+        try:
+            data = self.bc_repository.get_sales_documents(company_name)
+            return data or {"value": []}
+        except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {"value": []}
+
+    # --- Otros métodos (pueden necesitar ajuste de firma si son llamados por ExtractMultiCompanyStep) ---
+    def get_company_entity_definitions(self, company_id: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+         """Obtiene entityDefinitions (API v2). Ignora context."""
+         self.logger.info(f"Use Case: Obteniendo EntityDefinitions para Cia ID: {company_id}")
+         if not company_id: return {"value": []}
+         try:
+             data = self.bc_repository.get_entity_definitions(company_id)
+             return data or {"value": []}
+         except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {"value": []}
+
+    def get_company_raw_data(self, company_id: str, context: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+        """Obtiene datos raw de compañía (API v2). Ignora context."""
+        self.logger.info(f"Use Case: Obteniendo Datos Raw para Cia ID: {company_id}")
+        if not company_id: return {}
+        try:
+            data = self.bc_repository.get_company_raw_data(company_id)
+            return data or {}
+        except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {}

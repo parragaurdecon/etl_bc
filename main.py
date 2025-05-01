@@ -2,8 +2,9 @@
 
 import logging
 import sys
+import pandas as pd # Importar pandas para mostrar DataFrames
 
-# --- Importaciones (Asegúrate que todas son correctas) ---
+# --- Importaciones de tu aplicación ---
 try:
     from infrastructure.business_central.bc_client import BCClient
     from infrastructure.business_central.bc_repository import BCRepository
@@ -12,14 +13,11 @@ try:
     from domain.services.transform_service import TransformService
     from application.use_cases.bc_use_cases import BCUseCases
     from application.use_cases.csv_export_service import CSVExportService
-    # Importar el ETLController MODIFICADO
     from interface_adapters.controllers.etl_controller import ETLController
-    # Importar Steps de Extracción
     from interface_adapters.controllers.pipeline_extract import (
         ExtractCompaniesStep,
         ExtractMultiCompanyStep,
     )
-    # Importar Steps de Almacenamiento
     from interface_adapters.controllers.pipeline_store import (
         CheckPostgresConnectionStep,
         StoreDataInPostgresStep
@@ -28,7 +26,7 @@ except ImportError as import_err:
      print(f"Error crítico de importación: {import_err}")
      sys.exit(1)
 
-# --- CONFIGURACIÓN DE LOGGING (Mantener como estaba) ---
+# --- CONFIGURACIÓN DE LOGGING ---
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(levelname)s - [%(name)s:%(lineno)d] - %(message)s',
@@ -46,13 +44,12 @@ def main():
     final_status_message = "--- Pipeline ETL finalizado ---"
     exit_code = 0
     issue_summary = "Sin problemas registrados."
-    # Necesitamos inicializar issue_counter fuera del try para el finally
     issue_counter = None
+    final_context = {} # Inicializar contexto final
 
     try:
-        # --- 1. Configuración de Dependencias (sin cambios) ---
+        # --- 1. Configuración de Dependencias ---
         logger.info("1. Configurando dependencias...")
-        # ... (instanciar bc_client, bc_repository, transform_service, etc.) ...
         bc_client = BCClient()
         bc_repository = BCRepository(bc_client)
         transform_service = TransformService()
@@ -62,129 +59,327 @@ def main():
         pg_repository = PGRepository(sa_client)
         logger.info("Dependencias configuradas.")
 
-        # --- 2. Definición de los Pasos del Pipeline (CON ARGUMENTOS) ---
+        # --- 2. Definición de los Pasos del Pipeline ---
         logger.info("2. Definiendo los pasos del pipeline ETL...")
 
-        # Paso 1: Extraer Compañías (Filtradas por Use Case)
+        # --- Extracción ---
         step_extract_companies = ExtractCompaniesStep(
             bc_use_cases=bc_use_cases,
             csv_export_service=csv_exporter,
-            export_to_csv=True,
+            export_to_csv=True, # Exportar compañías filtradas
             csv_file_path="companies_filtered_export.csv"
-            # context_key por defecto es 'companies_json'
         )
-        logger.debug("... Step 'ExtractCompaniesStep' definido.")
+        logger.debug("... Step ExtractCompaniesStep definido.")
 
-        # Paso 2: Extraer Proyectos para las compañías filtradas
+        # API v2 Steps (usan ID)
         step_extract_multi_projects = ExtractMultiCompanyStep(
             companies_context_key="companies_json",
-            extract_func=bc_use_cases.get_company_projects, # <--- Argumento requerido
-            out_context_key="projects_json",              # <--- Argumento requerido
-            company_col="CompanyId"                       # Argumento opcional
+            extract_func=bc_use_cases.get_company_projects,
+            out_context_key="projects_json",
+            company_col="CompanyId",
+            # identifier_key="id" # Explícito para claridad
         )
-        logger.debug("... Step 'ExtractMultiCompanyStep' para Proyectos definido.")
+        logger.debug("... Step ExtractMultiCompanyStep (Projects API v2) definido.")
 
-        # Paso 3: Extraer Clientes para las compañías filtradas
-        step_extract_multi_customers = ExtractMultiCompanyStep(
+        step_extract_multi_customers_apiv2 = ExtractMultiCompanyStep(
             companies_context_key="companies_json",
-            extract_func=bc_use_cases.get_company_customers, # <--- Argumento requerido
-            out_context_key="customers_json",             # <--- Argumento requerido
-            company_col="CompanyId"
+            extract_func=bc_use_cases.get_company_customers,
+            out_context_key="customers_apiv2_json", # Nueva clave para distinguir
+            company_col="CompanyId",
+            # identifier_key="id"
         )
-        logger.debug("... Step 'ExtractMultiCompanyStep' para Clientes definido.")
+        logger.debug("... Step ExtractMultiCompanyStep (Customers API v2) definido.")
 
-        # Paso 4: Verificar Conexión a PostgreSQL
-        check_pg_step = CheckPostgresConnectionStep(
-            pg_repository=pg_repository
+        # ODataV4 Steps (usan Nombre)
+        step_extract_multi_job_ledger = ExtractMultiCompanyStep(
+             companies_context_key="companies_json",
+             extract_func=bc_use_cases.get_company_job_ledger_entries,
+             out_context_key="job_ledger_entries_json",
+             company_col="CompanyId",
+             # identifier_key="name" # Pasar nombre
         )
+        logger.debug("... Step ExtractMultiCompanyStep (JobLedger OData) definido.")
+
+        step_extract_multi_job_list = ExtractMultiCompanyStep(
+             companies_context_key="companies_json",
+             extract_func=bc_use_cases.get_company_job_list,
+             out_context_key="job_list_json",
+             company_col="CompanyId",
+             # identifier_key="name"
+        )
+        logger.debug("... Step ExtractMultiCompanyStep (JobList OData) definido.")
+
+        step_extract_multi_job_plan_lines = ExtractMultiCompanyStep(
+             companies_context_key="companies_json",
+             extract_func=bc_use_cases.get_company_job_planning_lines,
+             out_context_key="job_planning_lines_json",
+             company_col="CompanyId",
+             # identifier_key="name"
+        )
+        logger.debug("... Step ExtractMultiCompanyStep (JobPlanningLines OData) definido.")
+
+        step_extract_multi_job_task_lines = ExtractMultiCompanyStep(
+             companies_context_key="companies_json",
+             extract_func=bc_use_cases.get_company_job_task_lines,
+             out_context_key="job_task_lines_json",
+             company_col="CompanyId",
+             # identifier_key="name"
+        )
+        logger.debug("... Step ExtractMultiCompanyStep (JobTaskLines OData) definido.")
+
+        step_extract_multi_customer_list = ExtractMultiCompanyStep(
+            companies_context_key="companies_json",
+            extract_func=bc_use_cases.get_company_customer_list,
+            out_context_key="customer_list_json", # Clave específica
+            company_col="CompanyId",
+            # identifier_key="name"
+        )
+        logger.debug("... Step ExtractMultiCompanyStep (CustomerList OData) definido.")
+
+        step_extract_multi_cle = ExtractMultiCompanyStep(
+            companies_context_key="companies_json",
+            extract_func=bc_use_cases.get_company_customer_ledger_entries,
+            out_context_key="customer_ledger_entries_json",
+            company_col="CompanyId",
+            # identifier_key="name"
+        )
+        logger.debug("... Step ExtractMultiCompanyStep (CustLedgerEntries OData) definido.")
+
+        step_extract_multi_vendor_list = ExtractMultiCompanyStep(
+             companies_context_key="companies_json",
+             extract_func=bc_use_cases.get_company_vendor_list,
+             out_context_key="vendor_list_json",
+             company_col="CompanyId",
+             # identifier_key="name"
+        )
+        logger.debug("... Step ExtractMultiCompanyStep (VendorList OData) definido.")
+
+        step_extract_multi_vle = ExtractMultiCompanyStep(
+            companies_context_key="companies_json",
+            extract_func=bc_use_cases.get_company_vendor_ledger_entries,
+            out_context_key="vendor_ledger_entries_json",
+            company_col="CompanyId",
+            # identifier_key="name"
+        )
+        logger.debug("... Step ExtractMultiCompanyStep (VendLedgerEntries OData) definido.")
+
+        step_extract_multi_purchase_docs = ExtractMultiCompanyStep(
+             companies_context_key="companies_json",
+             extract_func=bc_use_cases.get_company_purchase_documents,
+             out_context_key="purchase_documents_json",
+             company_col="CompanyId",
+             # identifier_key="name"
+        )
+        logger.debug("... Step ExtractMultiCompanyStep (PurchaseDocs OData) definido.")
+
+        step_extract_multi_sales_docs = ExtractMultiCompanyStep(
+             companies_context_key="companies_json",
+             extract_func=bc_use_cases.get_company_sales_documents,
+             out_context_key="sales_documents_json",
+             company_col="CompanyId",
+             # identifier_key="name"
+        )
+        logger.debug("... Step ExtractMultiCompanyStep (SalesDocs OData) definido.")
+
+
+        # --- Almacenamiento (Solo para tablas existentes) ---
+        check_pg_step = CheckPostgresConnectionStep(pg_repository)
         logger.debug("... Step 'CheckPostgresConnectionStep' definido.")
 
-        # Paso 5: Almacenar Compañías (Modo Incremental)
         store_companies_step = StoreDataInPostgresStep(
             pg_repository=pg_repository,
             context_key="companies_json",
             table_name="companies_bc",
             convert_json_to_df=True,
-            primary_key="id" # Activa modo incremental
+            primary_key="id"
         )
         logger.debug("... Step 'StoreDataInPostgresStep' para companies_bc definido.")
 
-        # Paso 6: Almacenar Proyectos (Modo Incremental)
         store_projects_step = StoreDataInPostgresStep(
             pg_repository=pg_repository,
             context_key="projects_json",
             table_name="projects_bc",
             convert_json_to_df=True,
-            primary_key="id" # Activa modo incremental
+            primary_key="id"
         )
         logger.debug("... Step 'StoreDataInPostgresStep' para projects_bc definido.")
 
-        # Paso 7: Almacenar Clientes (Modo Incremental)
-        store_customers_step = StoreDataInPostgresStep(
+        # Mantenemos el step de customers API v2 por ahora, comentar si se reemplaza por customer_list
+        store_customers_apiv2_step = StoreDataInPostgresStep(
             pg_repository=pg_repository,
-            context_key="customers_json",
-            table_name="customers_bc",
+            context_key="customers_apiv2_json", # Usar la nueva clave
+            table_name="customers_bc", # Podría ir a la misma tabla o una nueva
             convert_json_to_df=True,
-            primary_key="id" # O la PK correcta para clientes
+            primary_key="id"
         )
-        logger.debug("... Step 'StoreDataInPostgresStep' para customers_bc definido.")
+        # --- NUEVOS Steps de Almacenamiento (ODataV4) ---
+        store_job_ledger_step = StoreDataInPostgresStep(
+            pg_repository=pg_repository, context_key="job_ledger_entries_json",
+            table_name="job_ledger_entries_bc", primary_key="Entry_No"  # PK especificada
+        )
+        logger.debug("... Step 'StoreDataInPostgresStep' para job_ledger_entries_bc definido.")
+
+        store_job_list_step = StoreDataInPostgresStep(
+            pg_repository=pg_repository, context_key="job_list_json",
+            table_name="job_list_bc", primary_key="@odata.etag"  # PK especificada
+        )
+        logger.debug("... Step 'StoreDataInPostgresStep' para job_list_bc definido.")
+
+        store_job_planning_lines_step = StoreDataInPostgresStep(
+            pg_repository=pg_repository, context_key="job_planning_lines_json",
+            table_name="job_planning_lines_bc", primary_key="@odata.etag"  # PK especificada
+        )
+        logger.debug("... Step 'StoreDataInPostgresStep' para job_planning_lines_bc definido.")
+
+        store_job_task_lines_step = StoreDataInPostgresStep(
+            pg_repository=pg_repository, context_key="job_task_lines_json",
+            table_name="job_task_lines_bc", primary_key="@odata.etag"  # PK especificada
+        )
+        logger.debug("... Step 'StoreDataInPostgresStep' para job_task_lines_bc definido.")
+
+        store_customer_list_step = StoreDataInPostgresStep(
+            pg_repository=pg_repository, context_key="customer_list_json",
+            table_name="customer_list_bc", primary_key="@odata.etag"  # PK especificada
+        )
+        logger.debug("... Step 'StoreDataInPostgresStep' para customer_list_bc definido.")
+
+        store_cle_step = StoreDataInPostgresStep(
+            pg_repository=pg_repository, context_key="customer_ledger_entries_json",
+            table_name="customer_ledger_entries_bc", primary_key="@odata.etag"  # PK especificada
+        )
+        logger.debug("... Step 'StoreDataInPostgresStep' para customer_ledger_entries_bc definido.")
+
+        store_vendor_list_step = StoreDataInPostgresStep(
+            pg_repository=pg_repository, context_key="vendor_list_json",
+            table_name="vendor_list_bc", primary_key="@odata.etag"  # PK especificada
+        )
+        logger.debug("... Step 'StoreDataInPostgresStep' para vendor_list_bc definido.")
+
+        store_vle_step = StoreDataInPostgresStep(
+            pg_repository=pg_repository, context_key="vendor_ledger_entries_json",
+            table_name="vendor_ledger_entries_bc", primary_key="Entry_No"  # PK especificada
+        )
+        logger.debug("... Step 'StoreDataInPostgresStep' para vendor_ledger_entries_bc definido.")
+
+        store_purchase_docs_step = StoreDataInPostgresStep(
+            pg_repository=pg_repository, context_key="purchase_documents_json",
+            table_name="purchase_documents_bc", primary_key="id"  # PK especificada
+        )
+        logger.debug("... Step 'StoreDataInPostgresStep' para purchase_documents_bc definido.")
+
+        store_sales_docs_step = StoreDataInPostgresStep(
+            pg_repository=pg_repository, context_key="sales_documents_json",
+            table_name="sales_documents_bc", primary_key="id"  # PK especificada
+        )
+        logger.debug("... Step 'StoreDataInPostgresStep' para sales_documents_bc definido.")
 
         logger.info("Pasos del pipeline definidos.")
 
         # --- 3. Definir la Secuencia ---
         steps = [
+            # Extracción
             step_extract_companies,
             step_extract_multi_projects,
-            step_extract_multi_customers,
+            step_extract_multi_customers_apiv2,
+            step_extract_multi_job_ledger,
+            step_extract_multi_job_list,
+            step_extract_multi_job_plan_lines,
+            step_extract_multi_job_task_lines,
+            step_extract_multi_customer_list,
+            step_extract_multi_cle,
+            step_extract_multi_vendor_list,
+            step_extract_multi_vle,
+            step_extract_multi_purchase_docs,
+            step_extract_multi_sales_docs,
+
+            # Verificación y Carga
             check_pg_step,
             store_companies_step,
             store_projects_step,
-            store_customers_step
+            store_customers_apiv2_step,  # O el step para customer_list_bc si lo prefieres
+            # Añadir los nuevos steps de almacenamiento
+            store_job_ledger_step,
+            store_job_list_step,
+            store_job_planning_lines_step,
+            store_job_task_lines_step,
+            store_customer_list_step,
+            store_cle_step,
+            store_vendor_list_step,
+            store_vle_step,
+            store_purchase_docs_step,
+            store_sales_docs_step,
         ]
         logger.info(f"Secuencia del pipeline establecida con {len(steps)} steps.")
 
         # --- 4. Ejecutar el Pipeline ---
         logger.info("4. Ejecutando el controlador ETL...")
         controller = ETLController(steps)
-        # Ejecutar y capturar el contador de problemas
-        final_context, issue_counter = controller.run_etl_process() # issue_counter puede ser None si falla la importación del handler
+        final_context, issue_counter = controller.run_etl_process()
 
-        # --- 5. Verificar si hubo problemas registrados por el handler ---
-        if issue_counter and issue_counter.has_errors: # Comprobar si issue_counter existe
+        # --- 5. Verificar Resultados y Estado Final ---
+        if issue_counter and issue_counter.has_errors:
             final_status_message = f"--- Pipeline ETL finalizado con ERRORES ({issue_counter.issue_summary}) ---"
             exit_code = 1
         elif issue_counter and issue_counter.has_warnings:
             final_status_message = f"--- Pipeline ETL finalizado con ADVERTENCIAS ({issue_counter.issue_summary}) ---"
         else:
-            final_status_message = f"--- Pipeline ETL finalizado con ÉXITO ({issue_summary}) ---"
+            # Comprobar si issue_counter existe antes de acceder a issue_summary
+            summary = issue_counter.issue_summary if issue_counter else "Sin contador de problemas."
+            final_status_message = f"--- Pipeline ETL finalizado con ÉXITO ({summary}) ---"
+
+        # # --- 6. Imprimir Muestra de Nuevos Datos (Opcional) ---
+        # logger.info("--- Muestra de Datos Extraídos (Nuevas Tablas OData) ---")
+        # new_keys_to_print = [
+        #     "job_ledger_entries_json", "job_list_json", "job_planning_lines_json",
+        #     "job_task_lines_json", "customer_list_json", "customer_ledger_entries_json",
+        #     "vendor_list_json", "vendor_ledger_entries_json",
+        #     "purchase_documents_json", "sales_documents_json"
+        # ]
+        # for key in new_keys_to_print:
+        #     if key in final_context:
+        #         data = final_context[key]
+        #         if isinstance(data, dict) and 'value' in data and isinstance(data['value'], list):
+        #              records = data['value']
+        #              logger.info(f"\n*** Datos para '{key}' (Total: {len(records)}):")
+        #              if records:
+        #                   # Convertir a DF para mostrar más bonito
+        #                   try:
+        #                       df_sample = pd.DataFrame(records)
+        #                       logger.info(f"\n{df_sample.head().to_string()}") # Imprimir las primeras 5 filas
+        #                   except Exception as e:
+        #                        logger.warning(f"No se pudo convertir '{key}' a DataFrame para mostrar: {e}")
+        #                        logger.info(str(records[:2])) # Imprimir los primeros 2 diccionarios como fallback
+        #              else:
+        #                   logger.info("(Vacío)")
+        #         else:
+        #              logger.warning(f"Contenido inesperado para '{key}' en el contexto: {type(data)}")
+        #     else:
+        #          logger.warning(f"Clave '{key}' no encontrada en el contexto final.")
+        # logger.info("-------------------------------------------------------")
 
 
+    # --- Manejo de Excepciones (como antes) ---
     except RuntimeError as e:
          final_status_message = f"--- Pipeline ETL DETENIDO por ERROR FATAL: {e} ---"
          exit_code = 1
-         # El traceback ya se logueó en el controller
     except ImportError as e:
          logger.critical(f"Error fatal de importación: {e}", exc_info=True)
          final_status_message = "--- Pipeline ETL DETENIDO por ERROR DE IMPORTACIÓN ---"
          exit_code = 1
     except Exception as e:
-        logger.exception("Error INESPERADO no capturado durante la configuración o ejecución del pipeline en main:")
+        logger.exception("Error INESPERADO no capturado durante la ejecución:")
         final_status_message = "--- Pipeline ETL finalizado con ERRORES INESPERADOS ---"
         exit_code = 1
 
-    # --- Mensaje Final ---
+    # --- Mensaje Final (como antes) ---
     logger.info("====================================================")
     log_level = logging.INFO
-    if exit_code != 0:
-        log_level = logging.ERROR
-    elif issue_counter and issue_counter.has_warnings:
-        log_level = logging.WARNING
-
-    logger.log(log_level, final_status_message) # Usar nivel calculado
+    if exit_code != 0 : log_level = logging.ERROR
+    elif issue_counter and issue_counter.has_warnings: log_level = logging.WARNING
+    logger.log(log_level, final_status_message)
     logger.info("====================================================")
 
     sys.exit(exit_code)
-
 
 if __name__ == "__main__":
     main()
