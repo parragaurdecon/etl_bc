@@ -132,7 +132,7 @@ def main():
         )
         logger.debug("... Step ExtractMultiCompanyStep (JobTaskLines OData) definido.")
 
-        step_extract_multi_job_task_lines = ExtractMultiCompanyStep(
+        step_extract_multi_job_task_lines_subform = ExtractMultiCompanyStep(
             companies_context_key="companies_json",
             extract_func=bc_use_cases.get_company_job_task_line_subform,
             out_context_key="job_task_lines_subform_json",
@@ -265,7 +265,7 @@ def main():
         )
         logger.debug("... Step 'StoreDataInPostgresStep' para job_list_bc definido.")
 
-        store_job_list_step = StoreDataInPostgresStep(
+        store_job_list_subform_step = StoreDataInPostgresStep(
             pg_repository=pg_repository, context_key="job_task_lines_subform_json",
             table_name="job_task_lines_subform_bc", primary_key="@odata.etag"  # PK especificada
         )
@@ -337,13 +337,14 @@ def main():
             step_extract_multi_vle,
             step_extract_multi_purchase_docs,
             step_extract_multi_sales_docs,
+            step_extract_multi_job_task_lines_subform,
 
             # Verificación y Carga
             check_pg_step,
 
             step_drop_job_list,
             step_concat_job_list,
-            # step_concat_job_task_lines,
+            step_concat_job_task_lines,
             step_concat_job_ledger_entries,
 
             store_companies_step,
@@ -360,6 +361,7 @@ def main():
             store_vle_step,
             store_purchase_docs_step,
             store_sales_docs_step,
+            store_job_list_subform_step,
         ]
         logger.info(f"Secuencia del pipeline establecida con {len(steps)} steps.")
 
