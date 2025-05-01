@@ -185,12 +185,31 @@ class BCClient:
 
     def fetch_job_ledger_entries_odata(self, company_name: str) -> Optional[Dict[str, Any]]:
         self.logger.info(f"BCClient: Obteniendo JobLedgerEntries (OData) Cia: '{company_name}'")
-        print('mirar aqui')
-        print(company_name)
         if not company_name: return None
         company_path = self._get_odata_company_path(company_name)
         url = f"{self.base_odata_url}/{company_path}/JobLedgerEntries"
+        print('mirar aqui')
+        print(company_path)
+        print(url)
         self.logger.info(f"BCClient OData URL: {url}")  # <-- LOG URL
+        return self._call_get(url)
+
+    def fetch_job_task_line_subform_odata(self, company_name: str) -> Optional[Dict[str, Any]]:
+        """
+        Descarga JobTaskLineSubform vía ODataV4 para la compañía indicada.
+
+        Ejemplo de URL resultante:
+        https://.../ODataV4/Company('Construct...')/JobTaskLineSubform
+        """
+        self.logger.info(f"BCClient: Obteniendo JobTaskLineSubform (OData) Cia: '{company_name}'")
+        if not company_name:
+            return None
+        company_path = self._get_odata_company_path(company_name)  # «Company('Nombre%20Escapado')»
+        print('mirar aqui')
+        print(company_path)
+        url = f"{self.base_odata_url}/{company_path}/Subformulario"  # <- RUta real
+        print(url)
+        self.logger.debug(f"BCClient OData URL: {url}")
         return self._call_get(url)
 
     def fetch_job_list_odata(self, company_name: str) -> Optional[Dict[str, Any]]:

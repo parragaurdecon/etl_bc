@@ -133,6 +133,24 @@ class BCUseCases:
             return data or {"value": []}
         except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {"value": []}
 
+    def get_company_job_task_line_subform(self, company_id: str, context: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Caso de uso: obtener JobTaskLineSubform (OData) buscando primero el nombre de compañía.
+        """
+        company_name = self._get_company_name_from_id(company_id, context)
+        if not company_name:
+            return {"value": []}
+
+        self.logger.info(f"Use Case: Obteniendo JobTaskLineSubform (OData) para Cia: '{company_name}'")
+        try:
+            data = self.bc_repository.get_job_task_line_subform(company_name)
+            # Aquí podrías llamar a TransformService si quisieras limpiar columnas:
+            # data = self.transform_service.drop_columns(data, {'@odata.etag'})
+            return data or {"value": []}
+        except Exception as e:
+            self.logger.error(f"Error: {e}", exc_info=True)
+            return {"value": []}
+
     def get_company_job_planning_lines(self, company_id: str, context: Dict[str, Any]) -> Dict[str, Any]:
         """Obtiene Job_Planning_Lines (ODataV4) buscando el nombre por ID."""
         company_name = self._get_company_name_from_id(company_id, context)

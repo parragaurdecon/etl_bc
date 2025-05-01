@@ -84,6 +84,20 @@ class BCRepository: # (BusinessCentralRepositoryInterface):
             return self._handle_client_response(data, f"fetch_job_ledger_entries_odata('{company_name}')") or {"value": []}
         except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {"value": []}
 
+    def get_job_task_line_subform(self, company_name: str) -> Dict[str, Any]:
+        """
+        Llama al client y maneja errores/None → {'value': []}
+        """
+        self.logger.info(f"Repositorio: Obteniendo JobTaskLineSubform (OData) Cia: '{company_name}'")
+        if not company_name:
+            return {"value": []}
+        try:
+            data = self.bc_client.fetch_job_task_line_subform_odata(company_name)
+            return self._handle_client_response( data, f"fetch_job_task_line_subform_odata('{company_name}')") or {"value": []}
+        except Exception as e:
+            self.logger.error(f"Error: {e}", exc_info=True)
+            return {"value": []}
+
     def get_job_list(self, company_name: str) -> Dict[str, Any]:
         self.logger.info(f"Repositorio: Obteniendo Job_List (OData) Cia: '{company_name}'")
         if not company_name: return {"value": []}

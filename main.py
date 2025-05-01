@@ -132,6 +132,15 @@ def main():
         )
         logger.debug("... Step ExtractMultiCompanyStep (JobTaskLines OData) definido.")
 
+        step_extract_multi_job_task_lines = ExtractMultiCompanyStep(
+            companies_context_key="companies_json",
+            extract_func=bc_use_cases.get_company_job_task_line_subform,
+            out_context_key="job_task_lines_subform_json",
+            company_col="CompanyId",
+            # identifier_key="name"
+        )
+        logger.debug("... Step ExtractMultiCompanyStep (JobTaskLines OData) definido.")
+
         step_extract_multi_customer_list = ExtractMultiCompanyStep(
             companies_context_key="companies_json",
             extract_func=bc_use_cases.get_company_customer_list,
@@ -256,6 +265,12 @@ def main():
         )
         logger.debug("... Step 'StoreDataInPostgresStep' para job_list_bc definido.")
 
+        store_job_list_step = StoreDataInPostgresStep(
+            pg_repository=pg_repository, context_key="job_task_lines_subform_json",
+            table_name="job_task_lines_subform_bc", primary_key="@odata.etag"  # PK especificada
+        )
+        logger.debug("... Step 'StoreDataInPostgresStep' para job_task_lines_subform_bc definido.")
+
         store_job_planning_lines_step = StoreDataInPostgresStep(
             pg_repository=pg_repository, context_key="job_planning_lines_json",
             table_name="job_planning_lines_bc", primary_key="@odata.etag"  # PK especificada
@@ -328,7 +343,7 @@ def main():
 
             step_drop_job_list,
             step_concat_job_list,
-            step_concat_job_task_lines,
+            # step_concat_job_task_lines,
             step_concat_job_ledger_entries,
 
             store_companies_step,
