@@ -1,82 +1,78 @@
 # domain/services/transform_service.py
-import logging
-from typing import Dict, Any, List, Set
-import pandas as pd # Mantener por si se usa en otras transformaciones
+"""
+TransformService: lógica de transformación de datos desacoplada.
+Aplicable antes de guardar en Postgres.
+"""
+from __future__ import annotations
 
-# --- Importar la instancia de settings ---
-# Ajusta la ruta según tu estructura. Asumiendo que settings.py está en una carpeta 'config'
+import logging
+from typing import Any, Dict, List, Set
+
+# --- Importar settings ---
 try:
     from config.settings import settings
 except ImportError:
-    logging.critical("Error CRÍTICO: No se pudo importar 'settings' desde config.settings.")
-    # Crear un objeto Dummy para evitar NameErrors, pero indicar el problema
+    logging.critical("Error CRÍTICO: No se pudo importar 'settings'. Usando configuración dummy.")
     class DummySettings:
         EXCLUDED_COMPANY_IDS: Set[str] = set()
-        # Añadir otros atributos esperados si es necesario para evitar errores
     settings = DummySettings()
-    logging.error("Se utilizará configuración dummy para TransformService debido a fallo de importación.")
-# ---------------------------------------
-
 
 class TransformService:
     """
-    Contiene lógica de transformación de datos desacoplada.
-    Obtiene la configuración de exclusión desde el objeto 'settings'.
+    Servicio para aplicar transformaciones genéricas a datos de Business Central antes
+    de su almacenamiento en Postgres.
     """
-    def __init__(self):
-        """Inicializa el servicio y carga la configuración necesaria."""
+    def __init__(self) -> None:
         self.logger = logging.getLogger(__name__)
-        self.excluded_ids: Set[str] = set() # Inicializar como vacío
+        self.excluded_ids: Set[str] = getattr(settings, 'EXCLUDED_COMPANY_IDS', set())
+        self.logger.info(f"TransformService inicializado. Excluyendo {len(self.excluded_ids)} IDs de compañías si procede.")
 
-        # Cargar IDs excluidos desde la instancia settings
-        # Es importante que 'settings' ya esté inicializado al crear TransformService
-        if settings and hasattr(settings, 'EXCLUDED_COMPANY_IDS') and isinstance(settings.EXCLUDED_COMPANY_IDS, set):
-            self.excluded_ids = settings.EXCLUDED_COMPANY_IDS
-            self.logger.info(f"TransformService inicializado. Excluyendo {len(self.excluded_ids)} IDs de compañías (leídos desde settings).")
-        elif settings:
-             self.logger.warning("El atributo 'EXCLUDED_COMPANY_IDS' no es un set válido en 'settings'. No se excluirán compañías por ID.")
-        else:
-             self.logger.error("La instancia 'settings' no está disponible. No se aplicará filtro de exclusión de compañías.")
-
-
-    # --- MÉTODO MODIFICADO ---
     def filter_companies(self, companies_data: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Filtra una lista de compañías (formato OData) usando los IDs excluidos
-        obtenidos de la configuración global ('settings').
-
-        :param companies_data: Diccionario con 'value': [lista de compañías].
-        :return: Diccionario con 'value': [lista de compañías filtradas].
-                 Devuelve {"value": []} si la entrada es inválida o no hay resultados.
+        Filtra compañías según IDs excluidos en settings.
         """
-        # Ya no recibe excluded_ids como parámetro
+        if not companies_data or 'value' not in companies_data:
+            self.logger.warning("Formato inválido en filter_companies.")
+            return {'value': []}
+        original = companies_data['value']
+        filtered = [c for c in original if c.get('id') not in self.excluded_ids]
+        removed = len(original) - len(filtered)
+        if removed:
+            self.logger.info(f"Se filtraron {removed} compañías según configuración.")
+        return {'value': filtered}
 
-        if not companies_data or "value" not in companies_data or not isinstance(companies_data["value"], list):
-            self.logger.warning("Formato de datos de compañías inválido o vacío recibido en filter_companies.")
-            return {"value": []} # Devolver estructura válida pero vacía
+    def drop_columns(self, data: Dict[str, Any], columns: Set[str]) -> Dict[str, Any]:
+        """
+        Elimina claves específicas de cada registro en data['value'].
+        """
+        if not data or 'value' not in data:
+            self.logger.warning("Formato inválido en drop_columns.")
+            return {'value': []}
+        result: List[Dict[str, Any]] = []
+        for record in data['value']:
+            new_rec = {k: v for k, v in record.items() if k not in columns}
+            result.append(new_rec)
+        self.logger.debug(f"Dropped columns {columns} de {len(result)} registros.")
+        return {'value': result}
 
-        original_list = companies_data["value"]
-        # Usar los IDs cargados durante la inicialización del servicio
-        excluded_ids_to_use = self.excluded_ids
-        self.logger.debug(f"Filtrando {len(original_list)} compañías. Excluyendo {len(excluded_ids_to_use)} IDs (desde config).")
+    def concat_columns(self, data: Dict[str, Any], new_col: str, cols: List[str], separator: str = '_') -> Dict[str, Any]:
+        """
+        Añade un campo resultante de concatenar valores de columnas existentes.
 
-        # Aplicar el filtro
-        filtered_list = [
-            comp for comp in original_list
-            if comp.get("id") not in excluded_ids_to_use # Comparar con la lista cargada
-        ]
+        :param data: {'value': [ ... ]}
+        :param new_col: nombre de la nueva columna
+        :param cols: lista de columnas a concatenar
+        :param separator: separador entre valores
+        """
+        if not data or 'value' not in data:
+            self.logger.warning("Formato inválido en concat_columns.")
+            return {'value': []}
+        result: List[Dict[str, Any]] = []
+        for record in data['value']:
+            values = [str(record.get(c, '')) for c in cols]
+            record[new_col] = separator.join(values)
+            result.append(record)
+        self.logger.debug(f"Concat columnas {cols} en '{new_col}' para {len(result)} registros.")
+        return {'value': result}
 
-        # Loguear el resultado del filtrado
-        filtered_count = len(original_list) - len(filtered_list)
-        if filtered_count > 0:
-            self.logger.info(f"Se filtraron {filtered_count} compañías excluidas.")
-        else:
-             self.logger.debug("No se encontraron compañías para excluir según la configuración.")
-
-        return {"value": filtered_list}
-
-    # --- Otros métodos de transformación ---
-    # (Puedes añadir más aquí, podrían usar 'settings' también si necesitan config)
-    # ej: def clean_project_data(self, projects_data: Dict[str, Any]) -> Dict[str, Any]:
-    #         threshold = settings.get_yaml_config('project_threshold', 0) # Ejemplo
-    #         # ... lógica ...
+# Eliminar métodos específicos de tablas; en su lugar crear pipeline_transform.py para componer pasos.

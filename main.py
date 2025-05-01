@@ -22,6 +22,11 @@ try:
         CheckPostgresConnectionStep,
         StoreDataInPostgresStep
     )
+
+    from interface_adapters.controllers.pipeline_transform import (
+        DropColumnsStep, ConcatColumnsStep
+    )
+
 except ImportError as import_err:
      print(f"Error crítico de importación: {import_err}")
      sys.exit(1)
@@ -181,6 +186,32 @@ def main():
         )
         logger.debug("... Step ExtractMultiCompanyStep (SalesDocs OData) definido.")
 
+        step_drop_job_list = DropColumnsStep(
+            transform_service,
+            context_key="job_list_json",
+            columns={"Person_Responsible", "Project_Manager"}
+        )
+
+        step_concat_job_list = ConcatColumnsStep(
+            transform_service,
+            context_key="job_list_json",
+            new_col="Id",
+            cols=["No", "CompanyId"]
+        )
+
+        step_concat_job_task_lines = ConcatColumnsStep(
+            transform_service,
+            context_key="job_task_lines_json",
+            new_col="project_company",
+            cols=["Job_No", "CompanyId"]
+        )
+
+        step_concat_job_ledger_entries = ConcatColumnsStep(
+            transform_service,
+            context_key="job_ledger_entries_json",
+            new_col="project_company",
+            cols=["Job_No", "CompanyId"]
+        )
 
         # --- Almacenamiento (Solo para tablas existentes) ---
         check_pg_step = CheckPostgresConnectionStep(pg_repository)
@@ -294,6 +325,12 @@ def main():
 
             # Verificación y Carga
             check_pg_step,
+
+            step_drop_job_list,
+            step_concat_job_list,
+            step_concat_job_task_lines,
+            step_concat_job_ledger_entries,
+
             store_companies_step,
             store_projects_step,
             store_customers_apiv2_step,  # O el step para customer_list_bc si lo prefieres
