@@ -75,6 +75,31 @@ class BCRepository: # (BusinessCentralRepositoryInterface):
              return self._handle_client_response(data, f"fetch_project_tasks({company_id},{project_id})") or {"value": []}
          except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {"value": []}
 
+    def get_purchase_invoices(self, company_id: str) -> Dict[str, Any]:
+        """Wrapper de client.fetch_purchase_invoices."""
+        self.logger.info(f"Repositorio: purchaseInvoices (API v2) Cia ID: '{company_id}'")
+        if not company_id:
+            return {"value": []}
+        try:
+            data = self.bc_client.fetch_purchase_invoices(company_id)
+            return self._handle_client_response(data, f"fetch_purchase_invoices('{company_id}')") or {"value": []}
+        except Exception as e:
+            self.logger.error(f"Error: {e}", exc_info=True)
+            return {"value": []}
+
+    def get_purchase_invoice_lines(self, company_id: str) -> Dict[str, Any]:
+        """Wrapper de client.fetch_purchase_invoices_lines."""
+        self.logger.info(f"Repositorio: purchaseInvoiceLines (API v2) Cia ID: '{company_id}'")
+        if not company_id:
+            return {"value": []}
+        try:
+            data = self.bc_client.fetch_purchase_invoices_lines(company_id)
+            return self._handle_client_response(data, f"fetch_purchase_invoices_lines('{company_id}')") or {"value": []}
+        except Exception as e:
+            self.logger.error(f"Error: {e}", exc_info=True)
+            return {"value": []}
+
+
     # --- Métodos ODataV4 (usan company_name) ---
     def get_job_ledger_entries(self, company_name: str) -> Dict[str, Any]:
         self.logger.info(f"Repositorio: Obteniendo JobLedgerEntries (OData) Cia: '{company_name}'")

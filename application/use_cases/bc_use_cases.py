@@ -249,3 +249,22 @@ class BCUseCases:
             data = self.bc_repository.get_company_raw_data(company_id)
             return data or {}
         except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {}
+
+    def get_company_purchase_invoices(self, company_id: str, _: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Devuelve purchaseInvoices (API v2) para la compañía cuyo ID recibimos.
+        (No hace falta nombre: la API usa ID).
+        """
+        if not company_id:
+            return {"value": []}
+        self.logger.info(f"Use Case: purchaseInvoices para Cia ID '{company_id}'")
+        return self.bc_repository.get_purchase_invoices(company_id)
+
+    def get_company_purchase_invoice_lines(self, company_id: str, _: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Devuelve purchaseInvoiceLines (API v2) para la compañía cuyo ID recibimos.
+        """
+        if not company_id:
+            return {"value": []}
+        self.logger.info(f"Use Case: purchaseInvoiceLines para Cia ID '{company_id}'")
+        return self.bc_repository.get_purchase_invoice_lines(company_id)

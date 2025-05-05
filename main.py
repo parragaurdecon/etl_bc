@@ -95,6 +95,24 @@ def main():
         )
         logger.debug("... Step ExtractMultiCompanyStep (Customers API v2) definido.")
 
+        step_extract_multi_purchase_invoices  = ExtractMultiCompanyStep(
+            companies_context_key="companies_json",
+            extract_func=bc_use_cases.get_company_purchase_invoices,
+            out_context_key="purchase_invoices_json",  # Nueva clave para distinguir
+            company_col="CompanyId",
+            # identifier_key="id"
+        )
+        logger.debug("... Step ExtractMultiCompanyStep (Customers API v2) definido.")
+
+        step_extract_multi_purchase_invoices_lines = ExtractMultiCompanyStep(
+            companies_context_key="companies_json",
+            extract_func=bc_use_cases.get_company_purchase_invoice_lines,
+            out_context_key="purchase_invoices_lines_json",  # Nueva clave para distinguir
+            company_col="CompanyId",
+            # identifier_key="id"
+        )
+        logger.debug("... Step ExtractMultiCompanyStep (Customers API v2) definido.")
+
         # ODataV4 Steps (usan Nombre)
         step_extract_multi_job_ledger = ExtractMultiCompanyStep(
              companies_context_key="companies_json",
@@ -319,6 +337,18 @@ def main():
         )
         logger.debug("... Step 'StoreDataInPostgresStep' para sales_documents_bc definido.")
 
+        store_purchase_invoices = StoreDataInPostgresStep(
+            pg_repository=pg_repository, context_key="purchase_invoices_lines",
+            table_name="purchase_invoices", primary_key="@odata.etag"  # PK especificada
+        )
+        logger.debug("... Step 'StoreDataInPostgresStep' para sales_documents_bc definido.")
+
+        store_purchase_invoices_lines = StoreDataInPostgresStep(
+            pg_repository=pg_repository, context_key="purchase_invoices_lines_json",
+            table_name="purchase_invoices_lines", primary_key="@odata.etag"  # PK especificada
+        )
+        logger.debug("... Step 'StoreDataInPostgresStep' para sales_documents_bc definido.")
+
         logger.info("Pasos del pipeline definidos.")
 
         # --- 3. Definir la Secuencia ---
@@ -338,6 +368,8 @@ def main():
             step_extract_multi_purchase_docs,
             step_extract_multi_sales_docs,
             step_extract_multi_job_task_lines_subform,
+            # step_extract_multi_purchase_invoices,
+            # step_extract_multi_purchase_invoices_lines,
 
             # Verificación y Carga
             check_pg_step,
