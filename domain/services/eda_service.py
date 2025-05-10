@@ -159,4 +159,4 @@ if __name__ == "__main__":
     _engine = create_engine(args.dsn, pool_pre_ping=True)
     _df = analyse_table(_engine, args.table, schema=args.schema, sample=args.sample)
     save_report(_df, args.out)
-    print("EDA report written to", args.out)
+    # print("EDA report written to", args.out)

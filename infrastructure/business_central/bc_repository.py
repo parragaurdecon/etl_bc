@@ -211,3 +211,36 @@ class BCRepository: # (BusinessCentralRepositoryInterface):
             data = self.bc_client.fetch_entity_definitions(company_id)
             return self._handle_client_response(data, f"fetch_entity_definitions({company_id})") or {"value": []}
         except Exception as e: self.logger.error(f"Error: {e}", exc_info=True); return {"value": []}
+
+    def get_resource_ledger_entries(self, company_name: str) -> Dict[str, Any]:
+        self.logger.info(f"Repositorio: ResourceLedgerEntries OData '{company_name}'")
+        if not company_name:
+            return {"value": []}
+        try:
+            data = self.bc_client.fetch_resource_ledger_entries_odata(company_name)
+            return self._handle_client_response(data, f"resourceLedger('{company_name}')") or {"value": []}
+        except Exception as e:
+            self.logger.error(f"Error: {e}", exc_info=True)
+            return {"value": []}
+
+    def get_general_ledger_entries(self, company_name: str) -> Dict[str, Any]:
+        self.logger.info(f"Repositorio: GeneralLedgerEntries OData '{company_name}'")
+        if not company_name:
+            return {"value": []}
+        try:
+            data = self.bc_client.fetch_general_ledger_entries_odata(company_name)
+            return self._handle_client_response(data, f"generalLedger('{company_name}')") or {"value": []}
+        except Exception as e:
+            self.logger.error(f"Error: {e}", exc_info=True)
+            return {"value": []}
+
+    def get_posted_purchase_invoice(self, company_name: str) -> Dict[str, Any]:
+        self.logger.info(f"Repositorio: PostedPurchaseInvoice OData '{company_name}'")
+        if not company_name:
+            return {"value": []}
+        try:
+            data = self.bc_client.fetch_posted_purchase_invoice_odata(company_name)
+            return self._handle_client_response(data, f"postedPurchaseInvoice('{company_name}')") or {"value": []}
+        except Exception as e:
+            self.logger.error(f"Error: {e}", exc_info=True)
+            return {"value": []}

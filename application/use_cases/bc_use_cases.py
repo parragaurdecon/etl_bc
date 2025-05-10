@@ -268,3 +268,64 @@ class BCUseCases:
             return {"value": []}
         self.logger.info(f"Use Case: purchaseInvoiceLines para Cia ID '{company_id}'")
         return self.bc_repository.get_purchase_invoice_lines(company_id)
+
+    def get_company_resource_ledger_entries(
+            self,
+            company_id: str,
+            context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Obtiene ResourceLedgerEntries (ODataV4) buscando el nombre por ID."""
+        company_name = self._get_company_name_from_id(company_id, context)
+        if not company_name:
+            return {"value": []}
+
+        self.logger.info(
+            f"Use Case: Obteniendo ResourceLedgerEntries (OData) para Cia: '{company_name}'"
+        )
+        try:
+            data = self.bc_repository.get_resource_ledger_entries(company_name)
+            return data or {"value": []}
+        except Exception as e:
+            self.logger.error(f"Error: {e}", exc_info=True)
+            return {"value": []}
+
+    def get_company_general_ledger_entries(
+            self,
+            company_id: str,
+            context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Obtiene GeneralLedgerEntries (ODataV4) buscando el nombre por ID."""
+        company_name = self._get_company_name_from_id(company_id, context)
+        if not company_name:
+            return {"value": []}
+
+        self.logger.info(
+            f"Use Case: Obteniendo GeneralLedgerEntries (OData) para Cia: '{company_name}'"
+        )
+        try:
+            data = self.bc_repository.get_general_ledger_entries(company_name)
+            return data or {"value": []}
+        except Exception as e:
+            self.logger.error(f"Error: {e}", exc_info=True)
+            return {"value": []}
+
+    def get_company_posted_purchase_invoice(
+            self,
+            company_id: str,
+            context: Dict[str, Any]
+    ) -> Dict[str, Any]:
+        """Obtiene PostedPurchaseInvoice (ODataV4) buscando el nombre por ID."""
+        company_name = self._get_company_name_from_id(company_id, context)
+        if not company_name:
+            return {"value": []}
+
+        self.logger.info(
+            f"Use Case: Obteniendo PostedPurchaseInvoice (OData) para Cia: '{company_name}'"
+        )
+        try:
+            data = self.bc_repository.get_posted_purchase_invoice(company_name)
+            return data or {"value": []}
+        except Exception as e:
+            self.logger.error(f"Error: {e}", exc_info=True)
+            return {"value": []}
+

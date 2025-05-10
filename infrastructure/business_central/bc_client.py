@@ -134,8 +134,8 @@ class BCClient:
     def _get_odata_company_path(self, company_name: str) -> str:
          """Codifica nombre para URL ODataV4 Company('Name')."""
          encoded_name = urllib.parse.quote(company_name.replace("'", "''"))
-         print('mirar aqui')
-         print(f"Company('{encoded_name}')")
+         # print('mirar aqui')
+         # print(f"Company('{encoded_name}')")
          return f"Company('{encoded_name}')"
 
     # --- Métodos Fetch API v2.0 (EXISTENTES - URL companies corregida) ---
@@ -202,9 +202,9 @@ class BCClient:
         if not company_name: return None
         company_path = self._get_odata_company_path(company_name)
         url = f"{self.base_odata_url}/{company_path}/JobLedgerEntries"
-        print('mirar aqui')
-        print(company_path)
-        print(url)
+        # print('mirar aqui')
+        # print(company_path)
+        # print(url)
         self.logger.info(f"BCClient OData URL: {url}")  # <-- LOG URL
         return self._call_get(url)
 
@@ -219,10 +219,7 @@ class BCClient:
         if not company_name:
             return None
         company_path = self._get_odata_company_path(company_name)  # «Company('Nombre%20Escapado')»
-        print('mirar aqui')
-        print(company_path)
         url = f"{self.base_odata_url}/{company_path}/Subformulario"  # <- RUta real
-        print(url)
         self.logger.debug(f"BCClient OData URL: {url}")
         return self._call_get(url)
 
@@ -302,4 +299,34 @@ class BCClient:
         company_path = self._get_odata_company_path(company_name)
         url = f"{self.base_odata_url}/{company_path}/salesDocuments"
         self.logger.info(f"BCClient OData URL: {url}")  # <-- LOG URL
+        return self._call_get(url)
+
+    def fetch_resource_ledger_entries_odata(self, company_name: str):
+        """GET /ODataV4/.../ResourceLedgerEntries"""
+        self.logger.info(f"BCClient: ResourceLedgerEntries (OData) Cia: '{company_name}'")
+        if not company_name:
+            return None
+        company_path = self._get_odata_company_path(company_name)
+        url = f"{self.base_odata_url}/{company_path}/ResourceLedgerEntries"
+        self.logger.debug(f"OData URL: {url}")
+        return self._call_get(url)
+
+    def fetch_general_ledger_entries_odata(self, company_name: str):
+        """GET /ODataV4/.../GeneralLedgerEntries"""
+        self.logger.info(f"BCClient: GeneralLedgerEntries (OData) Cia: '{company_name}'")
+        if not company_name:
+            return None
+        company_path = self._get_odata_company_path(company_name)
+        url = f"{self.base_odata_url}/{company_path}/GeneralLedgerEntries"
+        self.logger.debug(f"OData URL: {url}")
+        return self._call_get(url)
+
+    def fetch_posted_purchase_invoice_odata(self, company_name: str):
+        """GET /ODataV4/.../PostedPurchaseInvoice"""
+        self.logger.info(f"BCClient: PostedPurchaseInvoice (OData) Cia: '{company_name}'")
+        if not company_name:
+            return None
+        company_path = self._get_odata_company_path(company_name)
+        url = f"{self.base_odata_url}/{company_path}/PostedPurchaseInvoice"
+        self.logger.debug(f"OData URL: {url}")
         return self._call_get(url)

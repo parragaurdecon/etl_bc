@@ -95,24 +95,6 @@ def main():
         )
         logger.debug("... Step ExtractMultiCompanyStep (Customers API v2) definido.")
 
-        step_extract_multi_purchase_invoices  = ExtractMultiCompanyStep(
-            companies_context_key="companies_json",
-            extract_func=bc_use_cases.get_company_purchase_invoices,
-            out_context_key="purchase_invoices_json",  # Nueva clave para distinguir
-            company_col="CompanyId",
-            # identifier_key="id"
-        )
-        logger.debug("... Step ExtractMultiCompanyStep (Customers API v2) definido.")
-
-        step_extract_multi_purchase_invoices_lines = ExtractMultiCompanyStep(
-            companies_context_key="companies_json",
-            extract_func=bc_use_cases.get_company_purchase_invoice_lines,
-            out_context_key="purchase_invoices_lines_json",  # Nueva clave para distinguir
-            company_col="CompanyId",
-            # identifier_key="id"
-        )
-        logger.debug("... Step ExtractMultiCompanyStep (Customers API v2) definido.")
-
         # ODataV4 Steps (usan Nombre)
         step_extract_multi_job_ledger = ExtractMultiCompanyStep(
              companies_context_key="companies_json",
@@ -213,6 +195,46 @@ def main():
         )
         logger.debug("... Step ExtractMultiCompanyStep (SalesDocs OData) definido.")
 
+        step_extract_multi_resource_ledgers = ExtractMultiCompanyStep(
+            companies_context_key="companies_json",
+            extract_func=bc_use_cases.get_company_resource_ledger_entries,
+            out_context_key="resource_ledger_entries_json",
+            company_col="CompanyId",
+        )
+        logger.debug("... Step ExtractMultiCompanyStep (ResourceLedgerEntries) definido.")
+
+        step_extract_multi_general_ledgers = ExtractMultiCompanyStep(
+            companies_context_key="companies_json",
+            extract_func=bc_use_cases.get_company_general_ledger_entries,
+            out_context_key="general_ledger_entries_json",
+            company_col="CompanyId",
+        )
+        logger.debug("... Step ExtractMultiCompanyStep (GeneralLedgerEntries) definido.")
+
+        step_extract_multi_pp_invoice = ExtractMultiCompanyStep(
+            companies_context_key="companies_json",
+            extract_func=bc_use_cases.get_company_posted_purchase_invoice,
+            out_context_key="posted_purchase_invoice_json",
+            company_col="CompanyId",
+        )
+        logger.debug("... Step ExtractMultiCompanyStep (PostedPurchaseInvoice) definido.")
+
+        step_extract_multi_purchase_invoices = ExtractMultiCompanyStep(
+            companies_context_key="companies_json",
+            extract_func=bc_use_cases.get_company_purchase_invoices,
+            out_context_key="purchase_invoices_json",
+            company_col="CompanyId",
+        )
+
+        step_extract_multi_purchase_invoice_lines = ExtractMultiCompanyStep(
+            companies_context_key="companies_json",
+            extract_func=bc_use_cases.get_company_purchase_invoice_lines,
+            out_context_key="purchase_invoice_lines_json",
+            company_col="CompanyId",
+        )
+
+        # ─────────── ETL ──────────────────────────
+
         step_drop_job_list = DropColumnsStep(
             transform_service,
             context_key="job_list_json",
@@ -240,7 +262,7 @@ def main():
             cols=["Job_No", "CompanyId"]
         )
 
-        # --- Almacenamiento (Solo para tablas existentes) ---
+        # ─────────── Load ──────────────────────────
         check_pg_step = CheckPostgresConnectionStep(pg_repository)
         logger.debug("... Step 'CheckPostgresConnectionStep' definido.")
 
@@ -337,17 +359,43 @@ def main():
         )
         logger.debug("... Step 'StoreDataInPostgresStep' para sales_documents_bc definido.")
 
-        store_purchase_invoices = StoreDataInPostgresStep(
-            pg_repository=pg_repository, context_key="purchase_invoices_lines",
-            table_name="purchase_invoices", primary_key="@odata.etag"  # PK especificada
+        store_resource_ledgers_step = StoreDataInPostgresStep(
+            pg_repository=pg_repository,
+            context_key="resource_ledger_entries_json",
+            table_name="resource_ledger_entries_bc",
+            primary_key="Entry_No"  # PK típica en ledger entries
         )
-        logger.debug("... Step 'StoreDataInPostgresStep' para sales_documents_bc definido.")
+        logger.debug("... StoreDataInPostgresStep para resource_ledger_entries_bc definido.")
 
-        store_purchase_invoices_lines = StoreDataInPostgresStep(
-            pg_repository=pg_repository, context_key="purchase_invoices_lines_json",
-            table_name="purchase_invoices_lines", primary_key="@odata.etag"  # PK especificada
+        store_general_ledgers_step = StoreDataInPostgresStep(
+            pg_repository=pg_repository,
+            context_key="general_ledger_entries_json",
+            table_name="general_ledger_entries_bc",
+            primary_key="Entry_No"
         )
-        logger.debug("... Step 'StoreDataInPostgresStep' para sales_documents_bc definido.")
+        logger.debug("... StoreDataInPostgresStep para general_ledger_entries_bc definido.")
+
+        store_pp_invoice_step = StoreDataInPostgresStep(
+            pg_repository=pg_repository,
+            context_key="posted_purchase_invoice_json",
+            table_name="posted_purchase_invoice_bc",
+            primary_key="@odata.etag"  # cambia a 'id' si tu EDA muestra que es única
+        )
+        logger.debug("... StoreDataInPostgresStep para posted_purchase_invoice_bc definido.")
+
+        store_purchase_invoices_step = StoreDataInPostgresStep(
+            pg_repository,
+            context_key="purchase_invoices_json",
+            table_name="purchase_invoices_bc",
+            primary_key="id",
+        )
+
+        store_purchase_invoice_lines_step = StoreDataInPostgresStep(
+            pg_repository,
+            context_key="purchase_invoice_lines_json",
+            table_name="purchase_invoice_lines_bc",
+            primary_key="id",
+        )
 
         logger.info("Pasos del pipeline definidos.")
 
@@ -368,8 +416,11 @@ def main():
             step_extract_multi_purchase_docs,
             step_extract_multi_sales_docs,
             step_extract_multi_job_task_lines_subform,
-            # step_extract_multi_purchase_invoices,
-            # step_extract_multi_purchase_invoices_lines,
+            step_extract_multi_resource_ledgers,
+            step_extract_multi_general_ledgers,
+            step_extract_multi_pp_invoice,
+            step_extract_multi_purchase_invoices,
+            step_extract_multi_purchase_invoice_lines,
 
             # Verificación y Carga
             check_pg_step,
@@ -394,6 +445,13 @@ def main():
             store_purchase_docs_step,
             store_sales_docs_step,
             store_job_list_subform_step,
+            store_resource_ledgers_step,
+            store_general_ledgers_step,
+            store_pp_invoice_step,
+            store_purchase_invoices_step,
+            store_purchase_invoice_lines_step,
+
+
         ]
         logger.info(f"Secuencia del pipeline establecida con {len(steps)} steps.")
 
@@ -469,3 +527,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+
+
+    #TODO: hay problemas de permisos en posted puchase
+    # Hacer loop para invoices lines por cada factura
