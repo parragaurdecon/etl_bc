@@ -262,12 +262,34 @@ class BCUseCases:
 
     def get_company_purchase_invoice_lines(self, company_id: str, _: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Devuelve purchaseInvoiceLines (API v2) para la compañía cuyo ID recibimos.
+        Devuelve TODAS las líneas de factura de compra de la compañía.
+        Lógica:
+            1) purchaseInvoices ➜ ids
+            2) Para cada id ➜ purchaseInvoiceLines
+            3) Añade CompanyId e InvoiceId a cada línea
         """
         if not company_id:
             return {"value": []}
-        self.logger.info(f"Use Case: purchaseInvoiceLines para Cia ID '{company_id}'")
-        return self.bc_repository.get_purchase_invoice_lines(company_id)
+
+        headers = self.bc_repository.get_purchase_invoices(company_id).get("value", [])
+        all_lines: list[dict] = []
+
+        for inv in headers:
+            inv_id = inv.get("id")
+            if not inv_id:
+                continue
+            lines = self.bc_repository.get_purchase_invoice_lines(company_id, inv_id).get("value", [])
+            for ln in lines:
+                ln["CompanyId"] = company_id
+                ln["InvoiceId"] = inv_id
+                all_lines.append(ln)
+
+        self.logger.info(
+            "Use Case: Líneas purchaseInvoiceLines obtenidas para Cia %s → %d filas",
+            company_id,
+            len(all_lines),
+        )
+        return {"value": all_lines}
 
     def get_company_resource_ledger_entries(
             self,

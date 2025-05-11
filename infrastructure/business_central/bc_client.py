@@ -188,11 +188,27 @@ class BCClient:
         url = f"{self.base_api_url}/companies({company_id})/purchaseInvoices"
         return self._call_get(url)
 
-    def fetch_purchase_invoices_lines(self, company_id: str) -> Optional[Dict[str, Any]]:
-        """Obtiene entityDefinitions (API v2.0)."""
-        self.logger.info(f"BCClient: Obteniendo entity definitions (API v2) Cia ID: {company_id}")
-        if not company_id: self.logger.warning("company_id vacío."); return None
-        url = f"{self.base_api_url}/companies({company_id})/purchaseInvoiceLines"
+    def fetch_purchase_invoice_lines(
+            self,
+            company_id: str,
+            invoice_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """
+        Devuelve todas las líneas de UNA factura de compra (API v2).
+
+            /companies({companyId})/purchaseInvoices({invoice_id})/purchaseInvoiceLines
+        """
+        self.logger.info(
+            f"BCClient: purchaseInvoiceLines  Cia ID: {company_id}  Invoice: {invoice_id}"
+        )
+        if not company_id or not invoice_id:
+            self.logger.warning("company_id o invoice_id vacío.")
+            return None
+
+        url = (
+            f"{self.base_api_url}/companies({company_id})"
+            f"/purchaseInvoices({invoice_id})/purchaseInvoiceLines"
+        )
         return self._call_get(url)
 
     # --- Métodos Fetch ODataV4 (NUEVOS - usan company_name) ---

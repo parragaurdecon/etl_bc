@@ -17,6 +17,7 @@ try:
     from interface_adapters.controllers.pipeline_extract import (
         ExtractCompaniesStep,
         ExtractMultiCompanyStep,
+        ExtractPurchaseInvoiceLinesStep
     )
     from interface_adapters.controllers.pipeline_store import (
         CheckPostgresConnectionStep,
@@ -226,12 +227,8 @@ def main():
             company_col="CompanyId",
         )
 
-        step_extract_multi_purchase_invoice_lines = ExtractMultiCompanyStep(
-            companies_context_key="companies_json",
-            extract_func=bc_use_cases.get_company_purchase_invoice_lines,
-            out_context_key="purchase_invoice_lines_json",
-            company_col="CompanyId",
-        )
+        step_extract_multi_purchase_inv_lines = ExtractPurchaseInvoiceLinesStep(bc_use_cases)
+        logger.debug("... Step ExtractMultiCompanyStep (PurchaseInvoiceLines API v2) definido.")
 
         # ─────────── ETL ──────────────────────────
 
@@ -397,6 +394,14 @@ def main():
             primary_key="id",
         )
 
+        store_purchase_invoice_lines_step = StoreDataInPostgresStep(
+            pg_repository=pg_repository,
+            context_key="purchase_invoice_lines_json",
+            table_name="purchase_invoice_lines_bc",
+            primary_key="id",
+        )
+        logger.debug("... StoreDataInPostgresStep para purchase_invoice_lines_bc definido.")
+
         logger.info("Pasos del pipeline definidos.")
 
         # --- 3. Definir la Secuencia ---
@@ -418,9 +423,9 @@ def main():
             step_extract_multi_job_task_lines_subform,
             step_extract_multi_resource_ledgers,
             step_extract_multi_general_ledgers,
-            step_extract_multi_pp_invoice,
+            # step_extract_multi_pp_invoice,
             step_extract_multi_purchase_invoices,
-            step_extract_multi_purchase_invoice_lines,
+            step_extract_multi_purchase_inv_lines,
 
             # Verificación y Carga
             check_pg_step,
@@ -447,7 +452,7 @@ def main():
             store_job_list_subform_step,
             store_resource_ledgers_step,
             store_general_ledgers_step,
-            store_pp_invoice_step,
+            # store_pp_invoice_step,
             store_purchase_invoices_step,
             store_purchase_invoice_lines_step,
 

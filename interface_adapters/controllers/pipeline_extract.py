@@ -155,5 +155,18 @@ class ExtractMultiCompanyStep(ETLStepInterface):
         self.logger.info(f"--- Step Finalizado: {self.__class__.__name__} ({self.out_context_key}) ---")
         return context
 
+class ExtractPurchaseInvoiceLinesStep(ExtractMultiCompanyStep):
+    """
+    Extrae TODAS las purchaseInvoiceLines para cada compañía.
+    Usa get_company_purchase_invoice_lines (que ya hace el loop por invoices).
+    """
+    def __init__(self, bc_use_cases: BCUseCases):
+        super().__init__(
+            companies_context_key="companies_json",
+            extract_func=bc_use_cases.get_company_purchase_invoice_lines,
+            out_context_key="purchase_invoice_lines_json",
+            company_col="CompanyId",
+        )
+
 # NOTA: La clase ExtractProjectsStep (si la tenías definida) se puede eliminar si ya no se usa,
 # o mantenerla si tiene un propósito específico fuera de ExtractMultiCompanyStep.
