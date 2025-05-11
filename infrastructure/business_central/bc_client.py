@@ -346,3 +346,28 @@ class BCClient:
         url = f"{self.base_odata_url}/{company_path}/PostedPurchaseInvoice"
         self.logger.debug(f"OData URL: {url}")
         return self._call_get(url)
+
+    def fetch_journals(self, company_id: str) -> Optional[Dict[str, Any]]:
+        """GET /companies({cid})/journals   (API v2)"""
+        self.logger.info(f"BCClient: journals  Cia ID: {company_id}")
+        if not company_id:
+            return None
+        url = f"{self.base_api_url}/companies({company_id})/journals"
+        return self._call_get(url)
+
+    def fetch_journal_lines(
+            self,
+            company_id: str,
+            journal_id: str,
+    ) -> Optional[Dict[str, Any]]:
+        """GET /companies({cid})/journals({journal_id})/journalLines"""
+        self.logger.info(
+            f"BCClient: journalLines  Cia ID: {company_id}  Journal: {journal_id}"
+        )
+        if not company_id or not journal_id:
+            return None
+        url = (
+            f"{self.base_api_url}/companies({company_id})"
+            f"/journals({journal_id})/journalLines"
+        )
+        return self._call_get(url)

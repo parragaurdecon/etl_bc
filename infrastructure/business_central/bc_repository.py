@@ -250,3 +250,43 @@ class BCRepository: # (BusinessCentralRepositoryInterface):
         except Exception as e:
             self.logger.error(f"Error: {e}", exc_info=True)
             return {"value": []}
+
+    def get_journals(self, company_id: str) -> Dict[str, Any]:
+        self.logger.info(f"Repositorio: journals  Cia ID {company_id}")
+        if not company_id:
+            return {"value": []}
+        try:
+            data = self.bc_client.fetch_journals(company_id)
+            return self._handle_client_response(data, f"fetch_journals({company_id})") or {"value": []}
+        except Exception as e:
+            self.logger.error(f"Error: {e}", exc_info=True)
+            return {"value": []}
+
+    def get_journal_lines(self, company_id: str, journal_id: str) -> Dict[str, Any]:
+        self.logger.info(f"Repositorio: journalLines  Cia {company_id}  Jnl {journal_id}")
+        if not company_id or not journal_id:
+            return {"value": []}
+        try:
+            data = self.bc_client.fetch_journal_lines(company_id, journal_id)
+            return (
+                    self._handle_client_response(data, f"fetch_journal_lines({company_id},{journal_id})")
+                    or {"value": []}
+            )
+        except Exception as e:
+            self.logger.error(f"Error: {e}", exc_info=True)
+            return {"value": []}
+
+    def get_all_journal_lines(self, company_id: str) -> Dict[str, Any]:
+        """Devuelve TODAS las líneas de diario para la compañía."""
+        journals = self.get_journals(company_id).get("value", [])
+        acc: list[dict] = []
+        for jnl in journals:
+            jnl_id = jnl.get("id")
+            if not jnl_id:
+                continue
+            lines = self.get_journal_lines(company_id, jnl_id).get("value", [])
+            for ln in lines:
+                ln["CompanyId"] = company_id
+                ln["JournalId"] = jnl_id
+                acc.append(ln)
+        return {"value": acc}

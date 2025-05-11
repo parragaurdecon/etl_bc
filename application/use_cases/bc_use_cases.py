@@ -351,3 +351,10 @@ class BCUseCases:
             self.logger.error(f"Error: {e}", exc_info=True)
             return {"value": []}
 
+    def get_company_journal_lines(self, company_id: str, _: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Devuelve todas las journalLines del company (API v2).
+        """
+        if not company_id:
+            return {"value": []}
+        return self.bc_repository.get_all_journal_lines(company_id)

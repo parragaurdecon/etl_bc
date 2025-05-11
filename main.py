@@ -17,7 +17,8 @@ try:
     from interface_adapters.controllers.pipeline_extract import (
         ExtractCompaniesStep,
         ExtractMultiCompanyStep,
-        ExtractPurchaseInvoiceLinesStep
+        ExtractPurchaseInvoiceLinesStep,
+        ExtractJournalLinesStep
     )
     from interface_adapters.controllers.pipeline_store import (
         CheckPostgresConnectionStep,
@@ -230,6 +231,9 @@ def main():
         step_extract_multi_purchase_inv_lines = ExtractPurchaseInvoiceLinesStep(bc_use_cases)
         logger.debug("... Step ExtractMultiCompanyStep (PurchaseInvoiceLines API v2) definido.")
 
+        step_extract_multi_journal_lines = ExtractJournalLinesStep(bc_use_cases)
+        logger.debug("... Step ExtractMultiCompanyStep (JournalLines API v2) definido.")
+
         # ─────────── ETL ──────────────────────────
 
         step_drop_job_list = DropColumnsStep(
@@ -402,6 +406,14 @@ def main():
         )
         logger.debug("... StoreDataInPostgresStep para purchase_invoice_lines_bc definido.")
 
+        store_journal_lines_step = StoreDataInPostgresStep(
+            pg_repository=pg_repository,
+            context_key="journal_lines_json",
+            table_name="journal_lines_bc",
+            primary_key="id",
+        )
+        logger.debug("... StoreDataInPostgresStep para journal_lines_bc definido.")
+
         logger.info("Pasos del pipeline definidos.")
 
         # --- 3. Definir la Secuencia ---
@@ -426,6 +438,7 @@ def main():
             # step_extract_multi_pp_invoice,
             step_extract_multi_purchase_invoices,
             step_extract_multi_purchase_inv_lines,
+            # step_extract_multi_journal_lines,
 
             # Verificación y Carga
             check_pg_step,
@@ -455,6 +468,7 @@ def main():
             # store_pp_invoice_step,
             store_purchase_invoices_step,
             store_purchase_invoice_lines_step,
+            # store_journal_lines_step,
 
 
         ]

@@ -168,5 +168,14 @@ class ExtractPurchaseInvoiceLinesStep(ExtractMultiCompanyStep):
             company_col="CompanyId",
         )
 
+class ExtractJournalLinesStep(ExtractMultiCompanyStep):
+    def __init__(self, bc_use_cases: BCUseCases):
+        super().__init__(
+            companies_context_key="companies_json",
+            extract_func=bc_use_cases.get_company_journal_lines,
+            out_context_key="journal_lines_json",
+            company_col="CompanyId",
+        )
+
 # NOTA: La clase ExtractProjectsStep (si la tenías definida) se puede eliminar si ya no se usa,
 # o mantenerla si tiene un propósito específico fuera de ExtractMultiCompanyStep.
