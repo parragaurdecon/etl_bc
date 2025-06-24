@@ -66,6 +66,15 @@ def main():
         pg_repository = PGRepository(sa_client)
         logger.info("Dependencias configuradas.")
 
+        #   ── RESETEAR BD ──
+        try:
+            pg_repository.drop_database_if_exists()
+            pg_repository.create_database_if_not_exists()
+            logger.info("BD recreada correctamente.")
+        except Exception as e:
+            logger.critical("No se pudo recrear la BD: %s", e, exc_info=True)
+            sys.exit(1)
+
         # --- 2. Definición de los Pasos del Pipeline ---
         logger.info("2. Definiendo los pasos del pipeline ETL...")
 

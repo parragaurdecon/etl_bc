@@ -376,6 +376,41 @@ class PGRepository:
             raise RuntimeError(f"Fallo en inserción incremental para tabla '{table_name}'") from e
         # No necesitamos finally aquí si los engines se desechan internamente
 
+    def drop_database_if_exists(self) -> None:
+        """
+        Elimina la base de datos definida en SqlAlchemyClient (si existe).
+        Se conecta a la BD `postgres` y ejecuta `DROP DATABASE …`.
+        """
+        dbname = self.sa_client.dbname
+        self.logger.info("Borrando BD '%s' si existe…", dbname)
+
+        if not all([self.sa_client.user, self.sa_client.host, self.sa_client.port]):
+            raise ValueError(
+                "Faltan user/host/port para poder eliminar la BD en el clúster."
+            )
+
+        dsn = (
+            f"postgresql://{self.sa_client.user}:{self.sa_client.password or ''}"
+            f"@{self.sa_client.host}:{self.sa_client.port}/postgres"
+        )
+        temp_engine = None
+        try:
+            temp_engine = create_engine(dsn, isolation_level="AUTOCOMMIT")
+            with temp_engine.connect() as conn:
+                exists = conn.execute(
+                    text("SELECT 1 FROM pg_database WHERE datname = :db"),
+                    {"db": dbname},
+                ).scalar() is not None
+                if exists:
+                    self.logger.info("BD '%s' encontrada; eliminando…", dbname)
+                    # PG 13+: WITH (FORCE) cierra conexiones activas.
+                    conn.execute(text(f'DROP DATABASE "{dbname}" WITH (FORCE)'))
+                    self.logger.info("BD '%s' eliminada.", dbname)
+                else:
+                    self.logger.info("BD '%s' no existe; no se eliminó.", dbname)
+        finally:
+            if temp_engine:
+                temp_engine.dispose()
 
     def close_connection(self) -> None:
         """Intenta desechar el engine cacheado en el cliente (si existe)."""
